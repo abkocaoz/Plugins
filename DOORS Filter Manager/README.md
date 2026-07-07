@@ -54,16 +54,22 @@ kurulumlarında hazır gelir).
 python doors_filter_editor.py
 ```
 
-1. **Klasör Seç…** ile filtrelerin saklanacağı klasörü seçin (mevcut
-   `filters.json` varsa otomatik yüklenir).
-2. Sağdaki formda filtre tanımlayın: ad, attribute adı, operatör
-   (contains / equals / not equals / is empty / greater than / less than),
-   değer; isterseniz **AND/OR** ile ikinci koşul. **Formu Kaydet** ile listeye
-   ekleyin/güncelleyin, **Sil** ile kaldırın.
-3. **Dosyaya Kaydet** → `filters.json` + `filters.dat` yazılır.
-4. **DXL Üret…** → `filters.dat`'ın DOORS makinesindeki yolunu doğrulayın
-   (dosya başka makinede duracaksa oradaki yolu yazın) ve `.dxl` dosyasını
-   kaydedin. Üretilen DXL'e yol otomatik gömülür.
+1. İlk açılışta karşılama ekranındaki **Klasör Seç ve Başla** ile filtrelerin
+   saklanacağı klasörü seçin (mevcut `filters.json` varsa otomatik yüklenir;
+   son kullanılan klasör hatırlanır ve sonraki açılışta kendiliğinden açılır).
+2. **+ Yeni Filtre** veya **Hazır Şablonlar** ile başlayın. Formda cümle kurar
+   gibi ilerlersiniz: attribute (yaygın DOORS attribute'ları öneri listesinde),
+   Türkçe operatör (içerir / eşittir / eşit değildir / boştur / büyüktür /
+   küçüktür) ve değer. **+ İkinci koşul ekle** bağlantısıyla VE/VEYA'lı ikinci
+   koşul açılır. Alttaki **canlı önizleme**, filtrenin DOORS'ta ne yapacağını
+   siz yazarken renkli bir cümle olarak gösterir.
+3. **Filtreyi Kaydet** → filtre listeye eklenir ve `filters.json` +
+   `filters.dat` **otomatik olarak** diske yazılır (ayrı bir "dosyaya kaydet"
+   adımı yoktur; durum çubuğunda "✓ Kaydedildi" görünür). **Kopyala** mevcut
+   bir filtreden türetmenizi sağlar, **Sil** kaldırır.
+4. **DXL Üret → DOORS'ta kullan** → `filters.dat`'ın DOORS makinesindeki
+   yolunu doğrulayın (dosya başka makinede duracaksa oradaki yolu yazın) ve
+   `.dxl` dosyasını kaydedin. Üretilen DXL'e yol otomatik gömülür.
 
 GUI olmadan üretim de mümkündür:
 

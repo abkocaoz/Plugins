@@ -32,7 +32,7 @@ import sys
 # Sabitler ve veri modeli
 # ---------------------------------------------------------------------------
 
-APP_TITLE = "DOORS Kalıcı Filtre Yöneticisi — Filtre Editörü"
+APP_TITLE = "DOORS Filtre Yöneticisi"
 JSON_NAME = "filters.json"
 DAT_NAME = "filters.dat"
 
@@ -45,12 +45,12 @@ DEFAULT_DAT_PATH = r"C:\DOORS_Filters\filters.dat"
 
 # (kod, ekranda gösterilen etiket) — kod .json/.dat/DXL tarafında kullanılır.
 OPERATORS = [
-    ("contains",     "contains (içerir)"),
-    ("equals",       "equals (eşittir)"),
-    ("not_equals",   "not equals (eşit değildir)"),
-    ("is_empty",     "is empty (boştur)"),
-    ("greater_than", "greater than (büyüktür)"),
-    ("less_than",    "less than (küçüktür)"),
+    ("contains",     "içerir"),
+    ("equals",       "eşittir"),
+    ("not_equals",   "eşit değildir"),
+    ("is_empty",     "boştur"),
+    ("greater_than", "büyüktür"),
+    ("less_than",    "küçüktür"),
 ]
 OP_CODES = [c for c, _ in OPERATORS]
 OP_LABEL_BY_CODE = dict(OPERATORS)
@@ -96,7 +96,7 @@ def validate_filter(d, other_names):
             errs.append("%d. koşul: geçersiz operatör '%s'." % (no, op))
         elif op not in NO_VALUE_OPS and not val:
             errs.append("%d. koşul: değer boş olamaz "
-                        "(boşluk kontrolü için 'is empty' kullanın)." % no)
+                        "(boşluk kontrolü için 'boştur' kullanın)." % no)
 
     check_condition(1, d["attr1"], d["op1"], d["val1"])
     if d["logic"] in ("AND", "OR"):
@@ -639,157 +639,371 @@ def write_dxl_file(path, dat_path):
 # Tkinter GUI
 # ---------------------------------------------------------------------------
 
-def run_gui():
+def run_gui(test_hook=None):
     import tkinter as tk
+    import tkinter.font as tkfont
     from tkinter import ttk, filedialog, messagebox, simpledialog
+    from datetime import datetime
+
+    CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".doors_filter_editor.json")
+
+    # ---- görsel tema ------------------------------------------------------
+    NAVY = "#1f3a5f"          # başlık çubuğu
+    NAVY_SOFT = "#bcd0e8"     # başlıktaki ikincil metin
+    ACCENT = "#2f6fdb"        # ana eylem rengi
+    ACCENT_DARK = "#265cb8"
+    BG = "#eef1f5"            # pencere zemini
+    CARD = "#ffffff"          # kart zemini
+    TEXT = "#1c2733"
+    MUTED = "#5c6b7a"
+    OK_GREEN = "#1e7e34"
+    ERR_RED = "#c0392b"
+    ATTR_BLUE = "#1d4ed8"     # önizlemede attribute rengi
+    VAL_GREEN = "#0b7a4b"     # önizlemede değer rengi
+
+    COMMON_ATTRS = [
+        "Object Text", "Object Heading", "Object Short Text",
+        "Status", "Priority", "Rationale",
+        "Created By", "Created On", "Last Modified By", "Last Modified On",
+        "Absolute Number",
+    ]
+
+    TEMPLATES = [
+        ("Metinde kelime ara",
+         {"name": "Kelime Ara", "attr1": "Object Text", "op1": "contains",
+          "val1": "", "logic": "NONE"}),
+        ("Duruma göre süz (Status)",
+         {"name": "Durum Filtresi", "attr1": "Status", "op1": "equals",
+          "val1": "", "logic": "NONE"}),
+        ("Boş bırakılmış alanları bul",
+         {"name": "Bos Alanlar", "attr1": "Rationale", "op1": "is_empty",
+          "val1": "", "logic": "NONE"}),
+        ("İki koşullu örnek (VE)",
+         {"name": "Oncelikli ve Acik", "attr1": "Priority", "op1": "equals",
+          "val1": "High", "logic": "AND", "attr2": "Status",
+          "op2": "not_equals", "val2": "Closed"}),
+    ]
+
+    LOGIC_TR = {"AND": "VE", "OR": "VEYA"}
+    LOGIC_FROM_TR = {"VE": "AND", "VEYA": "OR"}
+
+    def load_config():
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            return {}
+
+    def save_config(cfg):
+        try:
+            with open(CONFIG_PATH, "w", encoding="utf-8") as fh:
+                json.dump(cfg, fh, ensure_ascii=False, indent=2)
+        except OSError:
+            pass  # yapılandırma yazılamazsa sessizce geç; işlevsellik etkilenmez
 
     class FilterEditorApp:
         def __init__(self, root):
             self.root = root
-            self.folder = None          # seçilen kayıt klasörü
-            self.filters = []           # normalize edilmiş dict listesi
-            self.edit_index = None      # None = yeni kayıt formu
-            self.dirty = False
-            self._build_ui()
-            self._refresh_title()
+            self.folder = None
+            self.filters = []
+            self.edit_index = None        # None = yeni kayıt formu
+            self._form_snapshot = None    # son yüklenen formun normalize hali
+            self._suppress_select = False
 
-        # ---------------- UI kurulumu ----------------
+            self._setup_fonts_and_style()
+            root.title(APP_TITLE)
+            root.geometry("1000x660")
+            root.minsize(880, 580)
+            root.configure(bg=BG)
 
-        def _build_ui(self):
-            root = self.root
-            root.geometry("860x520")
-            root.minsize(760, 460)
+            self._build_header()
+            self._build_welcome()
+            self._build_main()
+            self._build_footer()
+            self._show_welcome()
 
-            top = ttk.Frame(root, padding=(8, 8, 8, 4))
+            cfg = load_config()
+            last = cfg.get("last_folder")
+            if last and os.path.isdir(last):
+                self._open_folder(last, interactive=False)
+
+        # ------------------------------------------------ tema / yazı tipi
+        def _setup_fonts_and_style(self):
+            fams = set(tkfont.families())
+            self.F = ("Segoe UI" if "Segoe UI" in fams
+                      else "DejaVu Sans" if "DejaVu Sans" in fams
+                      else tkfont.nametofont("TkDefaultFont").actual("family"))
+            F = self.F
+            style = ttk.Style(self.root)
+            try:
+                style.theme_use("clam")
+            except tk.TclError:
+                pass
+            style.configure(".", background=BG, foreground=TEXT, font=(F, 10))
+            style.configure("Card.TFrame", background=CARD)
+            style.configure("Card.TLabel", background=CARD, foreground=TEXT)
+            style.configure("CardTitle.TLabel", background=CARD, foreground=TEXT,
+                            font=(F, 11, "bold"))
+            style.configure("Muted.TLabel", background=CARD, foreground=MUTED)
+            style.configure("BgMuted.TLabel", background=BG, foreground=MUTED)
+            style.configure("Error.TLabel", background=CARD, foreground=ERR_RED,
+                            font=(F, 9))
+            style.configure("Accent.TButton", background=ACCENT, foreground="white",
+                            padding=(14, 7), borderwidth=0, focusthickness=1,
+                            font=(F, 10, "bold"))
+            style.map("Accent.TButton",
+                      background=[("active", ACCENT_DARK), ("disabled", "#9db4d6")])
+            style.configure("Ghost.TButton", background=CARD, foreground=TEXT,
+                            padding=(10, 5))
+            style.configure("Link.TButton", background=CARD, foreground=ACCENT,
+                            borderwidth=0, padding=(2, 2), font=(F, 10, "underline"))
+            style.map("Link.TButton", foreground=[("active", ACCENT_DARK)],
+                      background=[("active", CARD)])
+            style.configure("Treeview", rowheight=26, background=CARD,
+                            fieldbackground=CARD, font=(F, 10))
+            style.configure("Treeview.Heading", font=(F, 10, "bold"))
+            style.configure("TCombobox", padding=3)
+            style.configure("TEntry", padding=3)
+            style.configure("TMenubutton", background=CARD, padding=(10, 5))
+
+        # ------------------------------------------------ üst çubuk
+        def _build_header(self):
+            h = tk.Frame(self.root, bg=NAVY)
+            h.pack(fill="x")
+            tk.Label(h, text="DOORS Filtre Yöneticisi", bg=NAVY, fg="white",
+                     font=(self.F, 14, "bold")).pack(side="left", padx=14, pady=10)
+            self.folder_lbl = tk.Label(h, text="", bg=NAVY, fg=NAVY_SOFT,
+                                       font=(self.F, 9))
+            self.folder_lbl.pack(side="left", padx=6)
+            self.change_btn = tk.Button(
+                h, text="Klasör Değiştir", command=self.choose_folder,
+                bg=NAVY, fg="white", activebackground=ACCENT_DARK,
+                activeforeground="white", relief="flat", bd=0,
+                font=(self.F, 9), padx=10, pady=4, cursor="hand2")
+            self.change_btn.pack(side="right", padx=12)
+
+        # ------------------------------------------------ karşılama ekranı
+        def _build_welcome(self):
+            self.welcome = tk.Frame(self.root, bg=BG)
+            card = tk.Frame(self.welcome, bg=CARD, padx=44, pady=36,
+                            highlightbackground="#d5dce5", highlightthickness=1)
+            card.place(relx=0.5, rely=0.44, anchor="center")
+            tk.Label(card, text="Hoş geldiniz", bg=CARD, fg=TEXT,
+                     font=(self.F, 16, "bold")).pack(anchor="w")
+            tk.Label(card,
+                     text="Üç adımda DOORS filtreleriniz hazır:",
+                     bg=CARD, fg=MUTED, font=(self.F, 10)).pack(anchor="w", pady=(4, 14))
+            steps = [
+                ("1", "Filtrelerin saklanacağı bir klasör seçin"),
+                ("2", "Filtrelerinizi cümle kurar gibi tanımlayın — her değişiklik otomatik kaydedilir"),
+                ("3", "'DXL Üret' ile DOORS paneli scriptini alın ve modülde çalıştırın"),
+            ]
+            for no, txt in steps:
+                row = tk.Frame(card, bg=CARD)
+                row.pack(anchor="w", pady=3, fill="x")
+                tk.Label(row, text=no, bg=ACCENT, fg="white", width=2,
+                         font=(self.F, 10, "bold")).pack(side="left")
+                tk.Label(row, text=" " + txt, bg=CARD, fg=TEXT,
+                         font=(self.F, 10)).pack(side="left")
+            ttk.Button(card, text="Klasör Seç ve Başla", style="Accent.TButton",
+                       command=self.choose_folder).pack(anchor="w", pady=(20, 0))
+
+        def _show_welcome(self):
+            self.welcome.pack(fill="both", expand=True)
+
+        def _show_main(self):
+            self.welcome.pack_forget()
+            self.main.pack(fill="both", expand=True, padx=12, pady=(12, 0))
+
+        # ------------------------------------------------ ana düzen
+        def _build_main(self):
+            self.main = tk.Frame(self.root, bg=BG)
+
+            # -- sol: filtre listesi
+            left = tk.Frame(self.main, bg=CARD, padx=10, pady=10,
+                            highlightbackground="#d5dce5", highlightthickness=1)
+            left.pack(side="left", fill="both", padx=(0, 12))
+            ttk.Label(left, text="Filtrelerim", style="CardTitle.TLabel").pack(anchor="w")
+            self.tree = ttk.Treeview(left, columns=("ozet",), show="tree headings",
+                                     height=16, selectmode="browse")
+            self.tree.heading("#0", text="Ad", anchor="w")
+            self.tree.heading("ozet", text="Özet", anchor="w")
+            self.tree.column("#0", width=170, stretch=False)
+            self.tree.column("ozet", width=240)
+            self.tree.pack(fill="both", expand=True, pady=(8, 8))
+            self.tree.bind("<<TreeviewSelect>>", self.on_tree_select)
+            self.tree.bind("<Delete>", lambda e: self.on_delete())
+
+            lb = tk.Frame(left, bg=CARD)
+            lb.pack(fill="x")
+            ttk.Button(lb, text="+ Yeni Filtre", style="Accent.TButton",
+                       command=self.on_new).pack(side="left")
+            ttk.Button(lb, text="Kopyala", style="Ghost.TButton",
+                       command=self.on_copy).pack(side="left", padx=6)
+            ttk.Button(lb, text="Sil", style="Ghost.TButton",
+                       command=self.on_delete).pack(side="left")
+
+            # -- sağ: düzenleme formu
+            right = tk.Frame(self.main, bg=CARD, padx=16, pady=12,
+                             highlightbackground="#d5dce5", highlightthickness=1)
+            right.pack(side="left", fill="both", expand=True)
+
+            top = tk.Frame(right, bg=CARD)
             top.pack(fill="x")
-            ttk.Button(top, text="Klasör Seç…", command=self.choose_folder).pack(side="left")
-            self.folder_var = tk.StringVar(value="(kayıt klasörü seçilmedi)")
-            ttk.Label(top, textvariable=self.folder_var).pack(side="left", padx=8)
+            ttk.Label(top, text="Filtre Tanımla", style="CardTitle.TLabel").pack(side="left")
+            tmpl_btn = ttk.Menubutton(top, text="Hazır Şablonlar")
+            tmpl_btn.pack(side="right")
+            tmpl_menu = tk.Menu(tmpl_btn, tearoff=0)
+            for label, data in TEMPLATES:
+                tmpl_menu.add_command(
+                    label=label, command=lambda d=data: self.apply_template(d))
+            tmpl_btn.configure(menu=tmpl_menu)
 
-            body = ttk.Frame(root, padding=8)
-            body.pack(fill="both", expand=True)
-            body.columnconfigure(1, weight=1)
-            body.rowconfigure(0, weight=1)
-
-            # Sol: filtre listesi
-            left = ttk.LabelFrame(body, text="Filtreler", padding=6)
-            left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-            left.rowconfigure(0, weight=1)
-            self.listbox = tk.Listbox(left, width=32, exportselection=False)
-            self.listbox.grid(row=0, column=0, sticky="nsew")
-            sb = ttk.Scrollbar(left, orient="vertical", command=self.listbox.yview)
-            sb.grid(row=0, column=1, sticky="ns")
-            self.listbox.configure(yscrollcommand=sb.set)
-            self.listbox.bind("<<ListboxSelect>>", self.on_select)
-
-            lbtns = ttk.Frame(left)
-            lbtns.grid(row=1, column=0, columnspan=2, pady=(6, 0), sticky="ew")
-            ttk.Button(lbtns, text="Yeni", command=self.on_new).pack(side="left")
-            ttk.Button(lbtns, text="Sil", command=self.on_delete).pack(side="left", padx=6)
-
-            # Sağ: düzenleme formu
-            form = ttk.LabelFrame(body, text="Filtre Tanımı", padding=8)
-            form.grid(row=0, column=1, sticky="nsew")
-            for col in (1, 3, 5):
-                form.columnconfigure(col, weight=1)
-
-            ttk.Label(form, text="Filtre adı:").grid(row=0, column=0, sticky="w", pady=3)
+            ttk.Label(right, text="Filtre adı", style="Muted.TLabel").pack(
+                anchor="w", pady=(10, 2))
             self.name_var = tk.StringVar()
-            ttk.Entry(form, textvariable=self.name_var).grid(
-                row=0, column=1, columnspan=5, sticky="ew", pady=3)
+            self.name_entry = ttk.Entry(right, textvariable=self.name_var,
+                                        font=(self.F, 11))
+            self.name_entry.pack(fill="x")
 
-            op_labels = [lbl for _, lbl in OPERATORS]
-
-            ttk.Label(form, text="1. koşul — attribute:").grid(row=1, column=0, sticky="w", pady=3)
+            # koşul 1
+            ttk.Label(right, text="Koşul", style="Muted.TLabel").pack(
+                anchor="w", pady=(14, 2))
             self.attr1_var = tk.StringVar()
-            ttk.Entry(form, textvariable=self.attr1_var).grid(row=1, column=1, sticky="ew", pady=3)
-            ttk.Label(form, text="operatör:").grid(row=1, column=2, sticky="e", padx=(8, 2))
-            self.op1_var = tk.StringVar(value=op_labels[0])
-            self.op1_cb = ttk.Combobox(form, textvariable=self.op1_var,
-                                       values=op_labels, state="readonly", width=24)
-            self.op1_cb.grid(row=1, column=3, sticky="ew", pady=3)
-            ttk.Label(form, text="değer:").grid(row=1, column=4, sticky="e", padx=(8, 2))
+            self.op1_var = tk.StringVar(value=OP_LABEL_BY_CODE["contains"])
             self.val1_var = tk.StringVar()
-            self.val1_entry = ttk.Entry(form, textvariable=self.val1_var)
-            self.val1_entry.grid(row=1, column=5, sticky="ew", pady=3)
+            r1 = self._condition_row(right, self.attr1_var, self.op1_var, self.val1_var)
+            r1.pack(fill="x")
+            self.val1_entry = r1.val_entry
 
-            ttk.Label(form, text="Mantıksal bağ:").grid(row=2, column=0, sticky="w", pady=3)
-            self.logic_var = tk.StringVar(value="NONE")
-            self.logic_cb = ttk.Combobox(form, textvariable=self.logic_var,
-                                         values=LOGIC_CHOICES, state="readonly", width=8)
-            self.logic_cb.grid(row=2, column=1, sticky="w", pady=3)
-            ttk.Label(form, text="(NONE = tek koşul)").grid(
-                row=2, column=2, columnspan=2, sticky="w")
+            # koşul 2 (isteğe bağlı) — link ve satır aynı sabit alanda yer değiştirir
+            self.cond2_area = tk.Frame(right, bg=CARD)
+            self.cond2_area.pack(fill="x")
+            self.cond2_link = ttk.Button(self.cond2_area,
+                                         text="+ İkinci koşul ekle (VE / VEYA)",
+                                         style="Link.TButton", command=self.show_cond2)
+            self.cond2_link.pack(anchor="w", pady=(8, 0))
 
-            ttk.Label(form, text="2. koşul — attribute:").grid(row=3, column=0, sticky="w", pady=3)
+            self.cond2_frame = tk.Frame(self.cond2_area, bg=CARD)
+            self.logic_var = tk.StringVar(value="VE")
+            lrow = tk.Frame(self.cond2_frame, bg=CARD)
+            lrow.pack(fill="x", pady=(8, 2))
+            ttk.Combobox(lrow, textvariable=self.logic_var, values=["VE", "VEYA"],
+                         state="readonly", width=7).pack(side="left")
+            ttk.Label(lrow, text="  aşağıdaki koşulla birleştir:",
+                      style="Muted.TLabel").pack(side="left")
+            ttk.Button(lrow, text="× koşulu kaldır", style="Link.TButton",
+                       command=self.hide_cond2).pack(side="right")
             self.attr2_var = tk.StringVar()
-            self.attr2_entry = ttk.Entry(form, textvariable=self.attr2_var)
-            self.attr2_entry.grid(row=3, column=1, sticky="ew", pady=3)
-            ttk.Label(form, text="operatör:").grid(row=3, column=2, sticky="e", padx=(8, 2))
-            self.op2_var = tk.StringVar(value=op_labels[0])
-            self.op2_cb = ttk.Combobox(form, textvariable=self.op2_var,
-                                       values=op_labels, state="readonly", width=24)
-            self.op2_cb.grid(row=3, column=3, sticky="ew", pady=3)
-            ttk.Label(form, text="değer:").grid(row=3, column=4, sticky="e", padx=(8, 2))
+            self.op2_var = tk.StringVar(value=OP_LABEL_BY_CODE["contains"])
             self.val2_var = tk.StringVar()
-            self.val2_entry = ttk.Entry(form, textvariable=self.val2_var)
-            self.val2_entry.grid(row=3, column=5, sticky="ew", pady=3)
+            r2 = self._condition_row(self.cond2_frame, self.attr2_var,
+                                     self.op2_var, self.val2_var)
+            r2.pack(fill="x")
+            self.val2_entry = r2.val_entry
+            self.cond2_visible = False
 
-            fbtns = ttk.Frame(form)
-            fbtns.grid(row=4, column=0, columnspan=6, pady=(10, 0), sticky="w")
-            ttk.Button(fbtns, text="Formu Kaydet (Ekle/Güncelle)",
-                       command=self.on_save_form).pack(side="left")
-            ttk.Button(fbtns, text="Formu Temizle", command=self.on_new).pack(
-                side="left", padx=6)
+            # canlı önizleme
+            ttk.Label(right, text="Önizleme — filtre DOORS'ta şunu yapacak:",
+                      style="Muted.TLabel").pack(anchor="w", pady=(16, 2))
+            self.preview = tk.Text(right, height=2, bd=0, wrap="word",
+                                   bg="#f4f7fb", padx=10, pady=8,
+                                   font=(self.F, 10), cursor="arrow")
+            self.preview.pack(fill="x")
+            self.preview.tag_configure("attr", foreground=ATTR_BLUE,
+                                       font=(self.F, 10, "bold"))
+            self.preview.tag_configure("op", foreground=MUTED)
+            self.preview.tag_configure("val", foreground=VAL_GREEN,
+                                       font=(self.F, 10, "bold"))
+            self.preview.tag_configure("logic", foreground=TEXT,
+                                       font=(self.F, 10, "bold"))
+            self.preview.tag_configure("hint", foreground=MUTED,
+                                       font=(self.F, 10, "italic"))
+            self.preview.configure(state="disabled")
 
-            self.logic_var.trace_add("write", lambda *_: self._sync_cond2_state())
-            self.op1_var.trace_add("write", lambda *_: self._sync_value_states())
-            self.op2_var.trace_add("write", lambda *_: self._sync_value_states())
+            self.err_lbl = ttk.Label(right, text="", style="Error.TLabel",
+                                     wraplength=520, justify="left")
+            self.err_lbl.pack(anchor="w", pady=(6, 0))
 
-            # Alt: dosya işlemleri + durum çubuğu
-            bottom = ttk.Frame(root, padding=(8, 4, 8, 8))
-            bottom.pack(fill="x")
-            ttk.Button(bottom, text="Dosyaya Kaydet (filters.json + filters.dat)",
-                       command=self.on_save_files).pack(side="left")
-            ttk.Button(bottom, text="DXL Üret…", command=self.on_generate_dxl).pack(
-                side="left", padx=6)
-            self.status_var = tk.StringVar(value="Hazır.")
-            ttk.Label(bottom, textvariable=self.status_var, anchor="e").pack(
-                side="right", fill="x", expand=True)
+            self.save_btn = ttk.Button(right, text="Filtreyi Kaydet",
+                                       style="Accent.TButton",
+                                       command=self.on_save_form)
+            self.save_btn.pack(anchor="e", pady=(10, 0))
 
-            root.protocol("WM_DELETE_WINDOW", self.on_close)
-            self._sync_cond2_state()
+            for var in (self.name_var, self.attr1_var, self.op1_var, self.val1_var,
+                        self.logic_var, self.attr2_var, self.op2_var, self.val2_var):
+                var.trace_add("write", lambda *_: self._on_form_change())
+            for w in (self.name_entry, self.val1_entry, self.val2_entry):
+                w.bind("<Return>", lambda e: self.on_save_form())
 
-        # ---------------- yardımcılar ----------------
+        def _condition_row(self, parent, attr_var, op_var, val_var):
+            row = tk.Frame(parent, bg=CARD)
+            attr_cb = ttk.Combobox(row, textvariable=attr_var, width=22,
+                                   values=COMMON_ATTRS, font=(self.F, 10))
+            attr_cb.configure(postcommand=lambda cb=attr_cb: cb.configure(
+                values=self._attr_suggestions()))
+            attr_cb.pack(side="left", fill="x", expand=True)
+            op_cb = ttk.Combobox(row, textvariable=op_var, state="readonly", width=13,
+                                 values=[lbl for _, lbl in OPERATORS])
+            op_cb.pack(side="left", padx=6)
+            val_entry = ttk.Entry(row, textvariable=val_var, width=20,
+                                  font=(self.F, 10))
+            val_entry.pack(side="left", fill="x", expand=True)
+            row.val_entry = val_entry
+            return row
 
-        def _refresh_title(self):
-            mark = " *" if self.dirty else ""
-            self.root.title(APP_TITLE + mark)
+        def _attr_suggestions(self):
+            used = []
+            for f in self.filters:
+                for k in ("attr1", "attr2"):
+                    a = f.get(k, "")
+                    if a and a not in used and a not in COMMON_ATTRS:
+                        used.append(a)
+            return COMMON_ATTRS + used
 
-        def _set_status(self, text):
-            self.status_var.set(text)
+        # ------------------------------------------------ alt çubuk
+        def _build_footer(self):
+            f = tk.Frame(self.root, bg=BG)
+            f.pack(fill="x", side="bottom")
+            inner = tk.Frame(f, bg=BG, padx=12, pady=10)
+            inner.pack(fill="x")
+            self.dxl_btn = ttk.Button(inner, text="DXL Üret → DOORS'ta kullan",
+                                      style="Accent.TButton",
+                                      command=self.on_generate_dxl)
+            self.dxl_btn.pack(side="left")
+            self.dxl_btn.configure(state="disabled")  # klasör seçilince açılır
+            self.status_lbl = tk.Label(inner, text="", bg=BG, fg=MUTED,
+                                       font=(self.F, 9), anchor="e")
+            self.status_lbl.pack(side="right", fill="x", expand=True)
 
-        def _set_dirty(self, dirty=True):
-            self.dirty = dirty
-            self._refresh_title()
+        def _set_status(self, text, color=None):
+            self.status_lbl.configure(text=text, fg=color or MUTED)
 
-        def _sync_cond2_state(self):
-            enabled = self.logic_var.get() in ("AND", "OR")
-            state = "normal" if enabled else "disabled"
-            cb_state = "readonly" if enabled else "disabled"
-            self.attr2_entry.configure(state=state)
-            self.op2_cb.configure(state=cb_state)
-            self.val2_entry.configure(state=state)
+        # ------------------------------------------------ form yardımcıları
+        def _on_form_change(self):
             self._sync_value_states()
+            self._render_preview()
+            self.err_lbl.configure(text="")
 
         def _sync_value_states(self):
             op1 = OP_CODE_BY_LABEL.get(self.op1_var.get(), "contains")
             self.val1_entry.configure(
                 state="disabled" if op1 in NO_VALUE_OPS else "normal")
-            if self.logic_var.get() in ("AND", "OR"):
-                op2 = OP_CODE_BY_LABEL.get(self.op2_var.get(), "contains")
-                self.val2_entry.configure(
-                    state="disabled" if op2 in NO_VALUE_OPS else "normal")
+            op2 = OP_CODE_BY_LABEL.get(self.op2_var.get(), "contains")
+            self.val2_entry.configure(
+                state="disabled" if op2 in NO_VALUE_OPS else "normal")
+
+        def show_cond2(self):
+            self.cond2_visible = True
+            self.cond2_link.pack_forget()
+            self.cond2_frame.pack(fill="x")
+            self._render_preview()
+
+        def hide_cond2(self):
+            self.cond2_visible = False
+            self.cond2_frame.pack_forget()
+            self.cond2_link.pack(anchor="w", pady=(8, 0))
+            self._render_preview()
 
         def _form_to_dict(self):
             d = new_filter_dict()
@@ -797,11 +1011,12 @@ def run_gui():
             d["attr1"] = self.attr1_var.get().strip()
             d["op1"] = OP_CODE_BY_LABEL.get(self.op1_var.get(), "contains")
             d["val1"] = "" if d["op1"] in NO_VALUE_OPS else self.val1_var.get().strip()
-            d["logic"] = self.logic_var.get()
-            if d["logic"] in ("AND", "OR"):
+            if self.cond2_visible:
+                d["logic"] = LOGIC_FROM_TR.get(self.logic_var.get(), "AND")
                 d["attr2"] = self.attr2_var.get().strip()
                 d["op2"] = OP_CODE_BY_LABEL.get(self.op2_var.get(), "contains")
-                d["val2"] = "" if d["op2"] in NO_VALUE_OPS else self.val2_var.get().strip()
+                d["val2"] = ("" if d["op2"] in NO_VALUE_OPS
+                             else self.val2_var.get().strip())
             return d
 
         def _dict_to_form(self, d):
@@ -809,62 +1024,187 @@ def run_gui():
             self.attr1_var.set(d["attr1"])
             self.op1_var.set(OP_LABEL_BY_CODE.get(d["op1"], OPERATORS[0][1]))
             self.val1_var.set(d["val1"])
-            self.logic_var.set(d["logic"])
-            self.attr2_var.set(d["attr2"])
-            self.op2_var.set(OP_LABEL_BY_CODE.get(d["op2"], OPERATORS[0][1]))
-            self.val2_var.set(d["val2"])
-            self._sync_cond2_state()
-
-        def _refresh_listbox(self, select=None):
-            self.listbox.delete(0, "end")
-            for f in self.filters:
-                self.listbox.insert("end", f["name"])
-            if select is not None and 0 <= select < len(self.filters):
-                self.listbox.selection_set(select)
-                self.listbox.see(select)
-
-        # ---------------- olaylar ----------------
-
-        def choose_folder(self):
-            folder = filedialog.askdirectory(title="filters.json klasörünü seçin")
-            if not folder:
-                return
-            if self.dirty and not messagebox.askyesno(
-                    "Kaydedilmemiş değişiklik",
-                    "Kaydedilmemiş değişiklikler var. Yine de klasör değiştirilsin mi?"):
-                return
-            self.folder = folder
-            self.folder_var.set(folder)
-            json_path = os.path.join(folder, JSON_NAME)
-            if os.path.exists(json_path):
-                try:
-                    self.filters = read_json_file(json_path)
-                    self._set_status("%d filtre yüklendi: %s" % (len(self.filters), json_path))
-                except (ValueError, OSError, json.JSONDecodeError) as exc:
-                    messagebox.showerror("Yükleme hatası",
-                                         "filters.json okunamadı:\n%s" % exc)
-                    return
+            if d["logic"] in ("AND", "OR"):
+                self.logic_var.set(LOGIC_TR[d["logic"]])
+                self.attr2_var.set(d["attr2"])
+                self.op2_var.set(OP_LABEL_BY_CODE.get(d["op2"], OPERATORS[0][1]))
+                self.val2_var.set(d["val2"])
+                if not self.cond2_visible:
+                    self.show_cond2()
             else:
-                self.filters = []
-                self._set_status("Yeni klasör; filters.json henüz yok.")
-            self.edit_index = None
-            self._dict_to_form(new_filter_dict())
-            self._refresh_listbox()
-            self._set_dirty(False)
+                self.attr2_var.set("")
+                self.val2_var.set("")
+                if self.cond2_visible:
+                    self.hide_cond2()
+            self._form_snapshot = normalize_filter(self._form_to_dict())
+            self._render_preview()
 
-        def on_select(self, _event=None):
-            sel = self.listbox.curselection()
+        def _form_dirty(self):
+            if self._form_snapshot is None:
+                return False
+            return normalize_filter(self._form_to_dict()) != self._form_snapshot
+
+        # ------------------------------------------------ önizleme
+        def _preview_segments(self, d):
+            segs = []
+
+            def cond(attr, op, val):
+                segs.append(("«%s»" % (attr or "…?"), "attr"))
+                segs.append((" " + OP_LABEL_BY_CODE.get(op, op), "op"))
+                if op not in NO_VALUE_OPS:
+                    segs.append((' "%s"' % (val or "…?"), "val"))
+
+            cond(d["attr1"], d["op1"], d["val1"])
+            if d["logic"] in ("AND", "OR"):
+                segs.append(("   %s   " % LOGIC_TR[d["logic"]], "logic"))
+                cond(d["attr2"], d["op2"], d["val2"])
+            return segs
+
+        def _render_preview(self):
+            d = self._form_to_dict()
+            self.preview.configure(state="normal")
+            self.preview.delete("1.0", "end")
+            if not d["attr1"] and not d["val1"] and not d["attr2"]:
+                self.preview.insert(
+                    "end", "Yukarıda attribute, operatör ve değer seçtikçe "
+                           "filtrenin ne yapacağını burada göreceksiniz.", "hint")
+            else:
+                self.preview.insert("end", "Şu nesneleri göster:  ", "op")
+                for text, tag in self._preview_segments(d):
+                    self.preview.insert("end", text, tag)
+            self.preview.configure(state="disabled")
+
+        def _summary_text(self, d):
+            parts = []
+            for text, _tag in self._preview_segments(d):
+                parts.append(text)
+            s = "".join(parts).replace("   ", " ").strip()
+            return (s[:57] + "…") if len(s) > 58 else s
+
+        # ------------------------------------------------ liste yönetimi
+        def _refresh_tree(self, select=None):
+            self.tree.delete(*self.tree.get_children())
+            for i, fdef in enumerate(self.filters):
+                self.tree.insert("", "end", iid=str(i), text=fdef["name"],
+                                 values=(self._summary_text(fdef),))
+            if select is not None and 0 <= select < len(self.filters):
+                self._suppress_select = True
+                try:
+                    self.tree.selection_set(str(select))
+                    self.tree.see(str(select))
+                finally:
+                    self._suppress_select = False
+
+        def on_tree_select(self, _event=None):
+            if self._suppress_select:
+                return
+            sel = self.tree.selection()
             if not sel:
                 return
-            self.edit_index = sel[0]
-            self._dict_to_form(self.filters[self.edit_index])
-            self._set_status("Düzenleniyor: %s" % self.filters[self.edit_index]["name"])
+            idx = int(sel[0])
+            if idx == self.edit_index:
+                return
+            if self._form_dirty() and not messagebox.askyesno(
+                    "Kaydedilmemiş değişiklik",
+                    "Formdaki değişiklikler kaydedilmedi ve kaybolacak.\n"
+                    "Yine de başka filtreye geçilsin mi?"):
+                self._suppress_select = True
+                try:
+                    if self.edit_index is not None:
+                        self.tree.selection_set(str(self.edit_index))
+                    else:
+                        if self.tree.selection():
+                            self.tree.selection_remove(*self.tree.selection())
+                finally:
+                    self._suppress_select = False
+                return
+            self.edit_index = idx
+            self._dict_to_form(self.filters[idx])
+            self._set_status("Düzenleniyor: %s" % self.filters[idx]["name"])
+
+        # ------------------------------------------------ olaylar
+        def choose_folder(self):
+            folder = filedialog.askdirectory(title="Filtrelerin saklanacağı klasörü seçin")
+            if folder:
+                self._open_folder(folder, interactive=True)
+
+        def _open_folder(self, folder, interactive):
+            json_path = os.path.join(folder, JSON_NAME)
+            filters = []
+            if os.path.exists(json_path):
+                try:
+                    filters = read_json_file(json_path)
+                except (ValueError, OSError) as exc:
+                    if interactive:
+                        messagebox.showerror(
+                            "Yükleme hatası", "filters.json okunamadı:\n%s" % exc)
+                    return
+            self.folder = folder
+            self.filters = filters
+            self.edit_index = None
+            save_config({"last_folder": folder})
+            self.folder_lbl.configure(text=folder)
+            self.dxl_btn.configure(state="normal")
+            self._show_main()
+            self._refresh_tree()
+            self.on_new()
+            if filters:
+                self._set_status("%d filtre yüklendi." % len(filters))
+            else:
+                self._set_status("Yeni klasör — ilk filtrenizi tanımlayın.")
 
         def on_new(self):
             self.edit_index = None
-            self.listbox.selection_clear(0, "end")
+            self._suppress_select = True
+            try:
+                if self.tree.selection():
+                    self.tree.selection_remove(*self.tree.selection())
+            finally:
+                self._suppress_select = False
             self._dict_to_form(new_filter_dict())
-            self._set_status("Yeni filtre formu.")
+            self.name_entry.focus_set()
+
+        def apply_template(self, data):
+            d = new_filter_dict()
+            d.update(data)
+            base, n = d["name"], 2
+            existing = {f["name"] for f in self.filters}
+            while d["name"] in existing:
+                d["name"] = "%s %d" % (base, n)
+                n += 1
+            self.edit_index = None
+            self._suppress_select = True
+            try:
+                if self.tree.selection():
+                    self.tree.selection_remove(*self.tree.selection())
+            finally:
+                self._suppress_select = False
+            self._dict_to_form(d)
+            # şablon dolduktan sonra kullanıcı ilk boş alana odaklansın
+            if not d["val1"] and d["op1"] not in NO_VALUE_OPS:
+                self.val1_entry.focus_set()
+            elif not d["attr1"]:
+                self.name_entry.focus_set()
+            self._set_status("Şablon yüklendi — değeri doldurup kaydedin.")
+
+        def on_copy(self):
+            sel = self.tree.selection()
+            if not sel:
+                self._set_status("Kopyalamak için listeden bir filtre seçin.", ERR_RED)
+                return
+            src = dict(self.filters[int(sel[0])])
+            base = src["name"] + " (kopya)"
+            name, n = base, 2
+            existing = {f["name"] for f in self.filters}
+            while name in existing:
+                name = "%s %d" % (base, n)
+                n += 1
+            src["name"] = name
+            self.filters.append(normalize_filter(src))
+            self.edit_index = len(self.filters) - 1
+            self._refresh_tree(select=self.edit_index)
+            self._dict_to_form(self.filters[self.edit_index])
+            self._autosave()
 
         def on_save_form(self):
             d = normalize_filter(self._form_to_dict())
@@ -872,7 +1212,7 @@ def run_gui():
                       if i != self.edit_index]
             errs = validate_filter(d, others)
             if errs:
-                messagebox.showerror("Geçersiz filtre", "\n".join(errs))
+                self.err_lbl.configure(text=" • " + "\n • ".join(errs))
                 return
             bad = cp1254_problem_chars(d)
             if bad and not messagebox.askyesno(
@@ -884,55 +1224,52 @@ def run_gui():
             if self.edit_index is None:
                 self.filters.append(d)
                 self.edit_index = len(self.filters) - 1
-                self._set_status("Filtre eklendi: %s" % d["name"])
             else:
                 self.filters[self.edit_index] = d
-                self._set_status("Filtre güncellendi: %s" % d["name"])
-            self._refresh_listbox(select=self.edit_index)
-            self._set_dirty(True)
+            self._form_snapshot = normalize_filter(self._form_to_dict())
+            self._refresh_tree(select=self.edit_index)
+            self._autosave()
 
         def on_delete(self):
-            sel = self.listbox.curselection()
+            sel = self.tree.selection()
             if not sel:
-                messagebox.showinfo("Silme", "Önce listeden bir filtre seçin.")
+                self._set_status("Silmek için listeden bir filtre seçin.", ERR_RED)
                 return
-            idx = sel[0]
+            idx = int(sel[0])
             name = self.filters[idx]["name"]
             if not messagebox.askyesno("Silme onayı", "'%s' silinsin mi?" % name):
                 return
             del self.filters[idx]
             self.edit_index = None
+            self._refresh_tree()
             self._dict_to_form(new_filter_dict())
-            self._refresh_listbox()
-            self._set_dirty(True)
-            self._set_status("Silindi: %s" % name)
+            self._autosave("Silindi: %s" % name)
 
-        def on_save_files(self):
+        def _autosave(self, prefix=None):
             if not self.folder:
-                messagebox.showinfo("Klasör gerekli", "Önce 'Klasör Seç…' ile kayıt klasörünü seçin.")
                 return
-            json_path = os.path.join(self.folder, JSON_NAME)
-            dat_path = os.path.join(self.folder, DAT_NAME)
             try:
-                write_json_file(json_path, self.filters)
-                write_dat_file(dat_path, self.filters)
+                write_json_file(os.path.join(self.folder, JSON_NAME), self.filters)
+                write_dat_file(os.path.join(self.folder, DAT_NAME), self.filters)
             except OSError as exc:
                 messagebox.showerror("Kayıt hatası", "Dosyalar yazılamadı:\n%s" % exc)
                 return
-            self._set_dirty(False)
-            self._set_status("Kaydedildi: %s ve %s" % (JSON_NAME, DAT_NAME))
+            stamp = datetime.now().strftime("%H:%M:%S")
+            msg = "✓ Kaydedildi %s (%d filtre)" % (stamp, len(self.filters))
+            if prefix:
+                msg = "%s — %s" % (prefix, msg)
+            self._set_status(msg, OK_GREEN)
 
         def on_generate_dxl(self):
             if not self.folder:
-                messagebox.showinfo("Klasör gerekli", "Önce 'Klasör Seç…' ile kayıt klasörünü seçin.")
                 return
-            if self.dirty:
-                if messagebox.askyesno(
-                        "Kaydedilmemiş değişiklik",
-                        "Kaydedilmemiş değişiklikler var. Önce dosyaya kaydedilsin mi?"):
-                    self.on_save_files()
-                    if self.dirty:   # kayıt başarısız olduysa
-                        return
+            if self._form_dirty() and not messagebox.askyesno(
+                    "Kaydedilmemiş form",
+                    "Formdaki değişiklikler henüz filtre listesine kaydedilmedi "
+                    "ve DXL'in kullanacağı dosyada yer almayacak.\n\n"
+                    "Yine de devam edilsin mi?"):
+                return
+            self._autosave()
             default_dat = os.path.abspath(os.path.join(self.folder, DAT_NAME))
             dat_path = simpledialog.askstring(
                 "filters.dat yolu",
@@ -954,21 +1291,21 @@ def run_gui():
             except OSError as exc:
                 messagebox.showerror("DXL üretim hatası", "Dosya yazılamadı:\n%s" % exc)
                 return
-            self._set_status("DXL üretildi: %s" % out_path)
+            self._set_status("DXL üretildi: %s" % out_path, OK_GREEN)
             messagebox.showinfo(
                 "DXL üretildi",
                 "DXL dosyası oluşturuldu:\n%s\n\nDOORS'ta formal modül açıkken "
                 "Tools > Edit DXL > Load… ile yükleyip Run ile çalıştırın.\n"
                 "Ayrıntılar için README.md dosyasına bakın." % out_path)
 
-        def on_close(self):
-            if self.dirty and not messagebox.askyesno(
-                    "Çıkış", "Kaydedilmemiş değişiklikler var. Yine de çıkılsın mı?"):
-                return
-            self.root.destroy()
-
     root = tk.Tk()
-    FilterEditorApp(root)
+    app = FilterEditorApp(root)
+    if test_hook is not None:      # otomatik testler icin: mainloop acilmaz
+        try:
+            test_hook(app)
+        finally:
+            root.destroy()
+        return
     root.mainloop()
 
 
