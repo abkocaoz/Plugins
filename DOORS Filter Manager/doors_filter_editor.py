@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-DOORS Kalıcı Filtre Yöneticisi — Filtre Editörü (Python / Tkinter)
-==================================================================
+DOORS Filtre Yöneticisi — Filtre Editörü (Python / Tkinter)
+===========================================================
 
 IBM DOORS 9.x (klasik, DXL destekli) için filtre tanımlarını düzenleyen
-masaüstü uygulama. Tanımlar iki dosyaya kaydedilir:
+masaüstü uygulama. Bir filtre, VE/VEYA ile zincirlenen 1..10 koşuldan
+oluşur; koşullar soldan sağa birleştirilir: ((k1 ∘ k2) ∘ k3) ...
+
+Tanımlar iki dosyaya kaydedilir:
 
   * filters.json  — kanonik, insan tarafından okunabilir kayıt (bu editör
-                    tarafından okunur/yazılır).
+                    tarafından okunur/yazılır). Sürüm 2 şeması; eski (v1,
+                    attr1/attr2'li) dosyalar da okunur ve dönüştürülür.
   * filters.dat   — DXL tarafının okuduğu basit, satır bazlı format.
                     DXL'de JSON parser olmadığı için JSON'dan otomatik
                     üretilir. Elle düzenlemeyin; editörden kaydedin.
@@ -43,6 +47,10 @@ DAT_ENCODING = "cp1254"
 
 DEFAULT_DAT_PATH = r"C:\DOORS_Filters\filters.dat"
 
+# Bir filtredeki en fazla koşul sayısı (UI ve format üst sınırı; DXL
+# tarafındaki toplam koşul havuzu MAX_CONDS=2000 ile ayrıca sınırlıdır).
+MAX_CONDITIONS = 10
+
 # (kod, ekranda gösterilen etiket) — kod .json/.dat/DXL tarafında kullanılır.
 OPERATORS = [
     ("contains",     "içerir"),
@@ -57,27 +65,44 @@ OP_LABEL_BY_CODE = dict(OPERATORS)
 OP_CODE_BY_LABEL = {lbl: c for c, lbl in OPERATORS}
 NO_VALUE_OPS = {"is_empty"}
 
-LOGIC_CHOICES = ["NONE", "AND", "OR"]
 
-FILTER_KEYS = ("name", "attr1", "op1", "val1", "logic", "attr2", "op2", "val2")
+def new_cond():
+    return {"logic": "AND", "attr": "", "op": "contains", "val": ""}
 
 
 def new_filter_dict():
-    return {
-        "name": "", "attr1": "", "op1": "contains", "val1": "",
-        "logic": "NONE", "attr2": "", "op2": "contains", "val2": "",
-    }
+    return {"name": "", "conditions": [new_cond()]}
+
+
+def _normalize_cond(c):
+    out = new_cond()
+    lg = str(c.get("logic", "AND") or "AND").strip().upper()
+    out["logic"] = "OR" if lg == "OR" else "AND"
+    out["attr"] = str(c.get("attr", "") or "").strip()
+    op = str(c.get("op", "contains") or "").strip()
+    out["op"] = op if op in OP_CODES else "contains"
+    out["val"] = ("" if out["op"] in NO_VALUE_OPS
+                  else str(c.get("val", "") or "").strip())
+    return out
 
 
 def normalize_filter(d):
-    """Eksik anahtarları tamamlar, tüm değerleri kırpılmış str yapar."""
-    out = new_filter_dict()
-    for k in FILTER_KEYS:
-        v = d.get(k, out[k])
-        out[k] = str(v).strip() if v is not None else ""
-    if out["logic"] not in LOGIC_CHOICES:
-        out["logic"] = "NONE"
-    return out
+    """Eksik anahtarları tamamlar; v1 şemasını (attr1/attr2) v2'ye çevirir."""
+    name = str(d.get("name", "") or "").strip()
+    conds = d.get("conditions")
+    if not isinstance(conds, list):
+        # v1 şeması: attr1/op1/val1 [+ logic + attr2/op2/val2]
+        conds = [{"attr": d.get("attr1", ""), "op": d.get("op1", "contains"),
+                  "val": d.get("val1", "")}]
+        if str(d.get("logic", "NONE") or "").strip().upper() in ("AND", "OR"):
+            conds.append({"logic": d.get("logic"), "attr": d.get("attr2", ""),
+                          "op": d.get("op2", "contains"),
+                          "val": d.get("val2", "")})
+    out = [_normalize_cond(c) for c in conds if isinstance(c, dict)]
+    out = out[:MAX_CONDITIONS]
+    if not out:
+        out = [new_cond()]
+    return {"name": name, "conditions": out}
 
 
 def validate_filter(d, other_names):
@@ -89,30 +114,30 @@ def validate_filter(d, other_names):
     elif name in other_names:
         errs.append("'%s' adında başka bir filtre zaten var." % name)
 
-    def check_condition(no, attr, op, val):
-        if not attr:
-            errs.append("%d. koşul: attribute adı boş olamaz." % no)
-        if op not in OP_CODES:
-            errs.append("%d. koşul: geçersiz operatör '%s'." % (no, op))
-        elif op not in NO_VALUE_OPS and not val:
+    for i, c in enumerate(d["conditions"], start=1):
+        if not c["attr"]:
+            errs.append("%d. koşul: attribute adı boş olamaz." % i)
+        if c["op"] not in NO_VALUE_OPS and not c["val"]:
             errs.append("%d. koşul: değer boş olamaz "
-                        "(boşluk kontrolü için 'boştur' kullanın)." % no)
-
-    check_condition(1, d["attr1"], d["op1"], d["val1"])
-    if d["logic"] in ("AND", "OR"):
-        check_condition(2, d["attr2"], d["op2"], d["val2"])
-
-    for k in FILTER_KEYS:
-        if "\n" in d[k] or "\r" in d[k]:
-            errs.append("'%s' alanı satır sonu karakteri içeremez." % k)
+                        "(boşluk kontrolü için 'boştur' kullanın)." % i)
+        for v in (c["attr"], c["val"]):
+            if "\n" in v or "\r" in v:
+                errs.append("%d. koşul: alanlar satır sonu karakteri "
+                            "içeremez." % i)
+                break
+    if "\n" in name or "\r" in name:
+        errs.append("Filtre adı satır sonu karakteri içeremez.")
     return errs
 
 
 def cp1254_problem_chars(d):
     """filters.dat'a yazılamayacak (kod sayfası dışı) karakterleri döndürür."""
     bad = set()
-    for k in FILTER_KEYS:
-        for ch in d.get(k, ""):
+    texts = [d.get("name", "")]
+    for c in d.get("conditions", []):
+        texts += [c.get("attr", ""), c.get("val", "")]
+    for text in texts:
+        for ch in text:
             try:
                 ch.encode(DAT_ENCODING)
             except UnicodeEncodeError:
@@ -125,7 +150,16 @@ def cp1254_problem_chars(d):
 # ---------------------------------------------------------------------------
 
 def filters_to_json_text(filters):
-    doc = {"format": "doors-filter-manager", "version": 1, "filters": filters}
+    out = []
+    for f in filters:
+        conds = []
+        for i, c in enumerate(f["conditions"]):
+            item = {"attr": c["attr"], "op": c["op"], "val": c["val"]}
+            if i > 0:
+                item["logic"] = c["logic"]
+            conds.append(item)
+        out.append({"name": f["name"], "conditions": conds})
+    doc = {"format": "doors-filter-manager", "version": 2, "filters": out}
     return json.dumps(doc, ensure_ascii=False, indent=2) + "\n"
 
 
@@ -142,31 +176,39 @@ def filters_from_json_text(text):
 
 def filters_to_dat_text(filters):
     """
-    DXL tarafının okuduğu satır bazlı format. Kayıt yapısı:
+    DXL tarafının okuduğu satır bazlı format (v2). Kayıt yapısı:
 
         FILTER
-        name=...
-        attr1=...
-        op1=...
-        val1=...
-        logic=NONE|AND|OR
-        attr2=...
-        op2=...
-        val2=...
+        name=Filtre Adı
+        attr=Status
+        op=equals
+        val=Approved
+        logic=AND            <- SONRAKİ koşulu öncekine bağlar
+        attr=Priority
+        op=equals
+        val=High
         END
 
-    '#' ile başlayan satırlar yorumdur. Değerler '=' işaretinden sonrası
-    olduğu gibi alınır (ilk '=' ayraçtır, değer '=' içerebilir).
+    '#' ile başlayan satırlar yorumdur. Her satır ilk '=' işaretinden
+    bölünür (değer '=' içerebilir). Koşullar dosyadaki sırayla soldan sağa
+    birleştirilir: ((k1 ∘ k2) ∘ k3)... DXL parser eski v1 anahtarlarını da
+    (attr1/op1/val1/attr2/...) sondaki rakamı atarak aynı şemaya indirger.
     """
     lines = [
-        "# DOORS Filter Manager veri dosyasi (v1)",
+        "# DOORS Filter Manager veri dosyasi (v2)",
+        "# Kosullar soldan saga birlestirilir: ((k1 . k2) . k3) ...",
         "# Bu dosya doors_filter_editor.py tarafindan uretilir; elle duzenlemeyin.",
         "",
     ]
     for f in filters:
         lines.append("FILTER")
-        for k in FILTER_KEYS:
-            lines.append("%s=%s" % (k, f.get(k, "")))
+        lines.append("name=%s" % f["name"])
+        for i, c in enumerate(f["conditions"]):
+            if i > 0:
+                lines.append("logic=%s" % c["logic"])
+            lines.append("attr=%s" % c["attr"])
+            lines.append("op=%s" % c["op"])
+            lines.append("val=%s" % c["val"])
         lines.append("END")
         lines.append("")
     # DOORS Windows'ta çalışır; CRLF ile yaz.
@@ -202,7 +244,13 @@ DXL_TEMPLATE = r'''// doors_filter_panel.dxl
 //
 // Bu dosya doors_filter_editor.py (Python) tarafindan uretilir.
 // Asagidaki DAT_FILE yolu uretim sirasinda kullaniciya gore doldurulur.
-// filters.dat dosyasi ayni Python editorun "Kaydet" adiminda uretilir.
+// filters.dat dosyasi ayni Python editorun kayit adiminda uretilir.
+//
+// Veri formati (v2): FILTER/END bloklari; name= ve tekrarlanan
+// attr=/op=/val= gruplari; gruplar arasinda logic=AND|OR satiri.
+// Kosullar dosyadaki sirayla soldan saga birlestirilir:
+//   ((k1 . k2) . k3) ...
+// Eski v1 anahtarlari (attr1/op1/...) sondaki rakam atilarak okunur.
 //
 // Calistirma: formal modul penceresinde Tools > Edit DXL > Load... > Run
 // Panel modsuzdur (non-modal): acikken modulde calismaya devam edebilirsiniz.
@@ -217,20 +265,25 @@ pragma runLim, 0
 string DAT_FILE = "@@DAT_PATH@@"
 
 int MAX_FILTERS = 300
+int MAX_CONDS   = 2000
 
 //---------------------------------------------------------------------------
 // Filtre kayitlari (filters.dat'tan yuklenir)
+// Her filtre, kosul havuzunda [gCondStart, gCondStart+gCondCount) araligini
+// kullanir. gCLogic[k], k. kosulu bir oncekine baglayan operatordur
+// ("AND"/"OR"; her filtrenin ilk kosulunda bos string).
 //---------------------------------------------------------------------------
 
 int    gCount = 0
 string gNames[MAX_FILTERS]
-string gAttr1[MAX_FILTERS]
-string gOp1[MAX_FILTERS]
-string gVal1[MAX_FILTERS]
-string gLogic[MAX_FILTERS]
-string gAttr2[MAX_FILTERS]
-string gOp2[MAX_FILTERS]
-string gVal2[MAX_FILTERS]
+int    gCondStart[MAX_FILTERS]
+int    gCondCount[MAX_FILTERS]
+
+int    gCondTotal = 0
+string gCAttr[MAX_CONDS]
+string gCOp[MAX_CONDS]
+string gCVal[MAX_CONDS]
+string gCLogic[MAX_CONDS]
 
 string gLoadError = ""
 
@@ -287,6 +340,19 @@ bool splitKeyValue(string line, string &key, string &val) {
     return false
 }
 
+// Anahtarin sonundaki rakamlari atar: "attr2" -> "attr" (v1 uyumu).
+string baseKey(string k) {
+    int n = length k
+    int j = n
+    while (j > 0) {
+        char c = k[j-1]
+        if (c >= '0' && c <= '9') j--
+        else break
+    }
+    if (j <= 0 || j == n) return k
+    return k[0:j-1]
+}
+
 bool isKnownOp(string op) {
     if (op == "contains")     return true
     if (op == "equals")       return true
@@ -295,10 +361,6 @@ bool isKnownOp(string op) {
     if (op == "greater_than") return true
     if (op == "less_than")    return true
     return false
-}
-
-bool opNeedsValue(string op) {
-    return (op != "is_empty")
 }
 
 bool attrExists(Module m, string attrName) {
@@ -311,13 +373,28 @@ bool attrExists(Module m, string attrName) {
 // filters.dat yukleme
 //---------------------------------------------------------------------------
 
+// Bekleyen kosulu havuza ekler. lg: bu kosulu oncekine baglayan operator.
+void commitPending(string a, string o, string v, string lg, int &curCount) {
+    if (a == "" || o == "") return
+    if (gCondTotal >= MAX_CONDS) return
+    gCAttr[gCondTotal] = a
+    gCOp[gCondTotal]   = o
+    gCVal[gCondTotal]  = v
+    if (curCount == 0) gCLogic[gCondTotal] = ""
+    else if (lg == "OR") gCLogic[gCondTotal] = "OR"
+    else gCLogic[gCondTotal] = "AND"
+    gCondTotal++
+    curCount++
+}
+
 bool loadFilters() {
     gCount = 0
+    gCondTotal = 0
     gLoadError = ""
 
     Stat st = create(DAT_FILE)
     if (null st) {
-        gLoadError = "Veri dosyasi bulunamadi:\n" DAT_FILE "\n\nOnce Python editorde 'Dosyaya Kaydet' yapin."
+        gLoadError = "Veri dosyasi bulunamadi:\n" DAT_FILE "\n\nOnce Python editorde filtre kaydedin."
         return false
     }
     delete st
@@ -332,8 +409,13 @@ bool loadFilters() {
     string key = ""
     string val = ""
     bool inRec = false
-    string nm = ""; string a1 = ""; string o1 = ""; string v1 = ""
-    string lg = ""; string a2 = ""; string o2 = ""; string v2 = ""
+    string nm = ""
+    int recStart = 0
+    int curCount = 0
+    // bekleyen (henuz havuza yazilmamis) kosul:
+    string pAttr = ""; string pOp = ""; string pVal = ""
+    string pLogic = ""         // bekleyen kosulu oncekine baglayan operator
+    string pendingLogic = ""   // en son okunan logic= degeri (sonraki kosul icin)
 
     while (true) {
         if (end of inp) break
@@ -344,19 +426,24 @@ bool loadFilters() {
 
         if (line == "FILTER") {
             inRec = true
-            nm = ""; a1 = ""; o1 = ""; v1 = ""
-            lg = "NONE"; a2 = ""; o2 = ""; v2 = ""
+            nm = ""
+            recStart = gCondTotal
+            curCount = 0
+            pAttr = ""; pOp = ""; pVal = ""
+            pLogic = ""; pendingLogic = ""
             continue
         }
 
         if (line == "END") {
-            if (inRec && nm != "" && a1 != "" && o1 != "") {
-                if (gCount < MAX_FILTERS) {
+            if (inRec) {
+                commitPending(pAttr, pOp, pVal, pLogic, curCount)
+                if (nm != "" && curCount > 0 && gCount < MAX_FILTERS) {
                     gNames[gCount] = nm
-                    gAttr1[gCount] = a1;  gOp1[gCount] = o1;  gVal1[gCount] = v1
-                    gLogic[gCount] = lg
-                    gAttr2[gCount] = a2;  gOp2[gCount] = o2;  gVal2[gCount] = v2
+                    gCondStart[gCount] = recStart
+                    gCondCount[gCount] = curCount
                     gCount++
+                } else {
+                    gCondTotal = recStart   // gecersiz kayit: kosullari geri al
                 }
             }
             inRec = false
@@ -366,15 +453,17 @@ bool loadFilters() {
         if (!inRec) continue
 
         if (splitKeyValue(line, key, val)) {
-            key = trimStr(key)
-            if      (key == "name")  nm = val
-            else if (key == "attr1") a1 = val
-            else if (key == "op1")   o1 = val
-            else if (key == "val1")  v1 = val
-            else if (key == "logic") lg = trimStr(val)
-            else if (key == "attr2") a2 = val
-            else if (key == "op2")   o2 = val
-            else if (key == "val2")  v2 = val
+            key = baseKey(trimStr(key))
+            if (key == "name") nm = val
+            else if (key == "attr") {
+                if (pAttr != "") commitPending(pAttr, pOp, pVal, pLogic, curCount)
+                pAttr = val; pOp = ""; pVal = ""
+                pLogic = trimStr(pendingLogic)
+                pendingLogic = ""
+            }
+            else if (key == "op")    pOp = val
+            else if (key == "val")   pVal = val
+            else if (key == "logic") pendingLogic = val
         }
     }
     close inp
@@ -388,18 +477,14 @@ bool loadFilters() {
 // Uygulamadan ONCE cagrilir; "" donerse kayit gecerli demektir.
 // Attribute modulde yoksa script cokmez, aciklayici mesaj doner.
 string validateRecord(Module m, int i) {
-    if (!attrExists(m, gAttr1[i])) {
-        return "Oznitelik (attribute) bu modulde tanimli degil: '" gAttr1[i] "'"
-    }
-    if (!isKnownOp(gOp1[i])) {
-        return "Bilinmeyen operator: '" gOp1[i] "'"
-    }
-    if (gLogic[i] == "AND" || gLogic[i] == "OR") {
-        if (!attrExists(m, gAttr2[i])) {
-            return "Oznitelik (attribute) bu modulde tanimli degil: '" gAttr2[i] "'"
+    int s = gCondStart[i]
+    int k
+    for (k = 0; k < gCondCount[i]; k++) {
+        if (!attrExists(m, gCAttr[s+k])) {
+            return "Oznitelik (attribute) bu modulde tanimli degil: '" gCAttr[s+k] "'"
         }
-        if (!isKnownOp(gOp2[i])) {
-            return "Bilinmeyen operator: '" gOp2[i] "'"
+        if (!isKnownOp(gCOp[s+k])) {
+            return "Bilinmeyen operator: '" gCOp[s+k] "'"
         }
     }
     return ""
@@ -416,11 +501,17 @@ Filter buildCondition(string attrName, string op, string val) {
     return (attribute attrName < val)   // less_than
 }
 
+// Kosullari soldan saga birlestirir: ((k1 . k2) . k3) ...
 Filter buildRecord(int i) {
-    Filter f1 = buildCondition(gAttr1[i], gOp1[i], gVal1[i])
-    if (gLogic[i] == "AND") return (f1 && buildCondition(gAttr2[i], gOp2[i], gVal2[i]))
-    if (gLogic[i] == "OR")  return (f1 || buildCondition(gAttr2[i], gOp2[i], gVal2[i]))
-    return f1
+    int s = gCondStart[i]
+    Filter f = buildCondition(gCAttr[s], gCOp[s], gCVal[s])
+    int k
+    for (k = 1; k < gCondCount[i]; k++) {
+        Filter fk = buildCondition(gCAttr[s+k], gCOp[s+k], gCVal[s+k])
+        if (gCLogic[s+k] == "OR") f = (f || fk)
+        else f = (f && fk)
+    }
+    return f
 }
 
 string describeCondition(string a, string o, string v) {
@@ -429,11 +520,15 @@ string describeCondition(string a, string o, string v) {
 }
 
 string describeRecord(int i) {
-    string s = describeCondition(gAttr1[i], gOp1[i], gVal1[i])
-    if (gLogic[i] == "AND" || gLogic[i] == "OR") {
-        s = s " " gLogic[i] " " describeCondition(gAttr2[i], gOp2[i], gVal2[i])
+    int s = gCondStart[i]
+    string out = ""
+    int k
+    for (k = 0; k < gCondCount[i]; k++) {
+        if (k > 0) out = out " " gCLogic[s+k] " "
+        out = out describeCondition(gCAttr[s+k], gCOp[s+k], gCVal[s+k])
     }
-    return s
+    if (gCondCount[i] > 2) out = out "   (soldan saga birlesir)"
+    return out
 }
 
 //---------------------------------------------------------------------------
@@ -670,18 +765,26 @@ def run_gui(test_hook=None):
 
     TEMPLATES = [
         ("Metinde kelime ara",
-         {"name": "Kelime Ara", "attr1": "Object Text", "op1": "contains",
-          "val1": "", "logic": "NONE"}),
+         {"name": "Kelime Ara", "conditions": [
+             {"attr": "Object Text", "op": "contains", "val": ""}]}),
         ("Duruma göre süz (Status)",
-         {"name": "Durum Filtresi", "attr1": "Status", "op1": "equals",
-          "val1": "", "logic": "NONE"}),
+         {"name": "Durum Filtresi", "conditions": [
+             {"attr": "Status", "op": "equals", "val": ""}]}),
         ("Boş bırakılmış alanları bul",
-         {"name": "Bos Alanlar", "attr1": "Rationale", "op1": "is_empty",
-          "val1": "", "logic": "NONE"}),
+         {"name": "Bos Alanlar", "conditions": [
+             {"attr": "Rationale", "op": "is_empty", "val": ""}]}),
         ("İki koşullu örnek (VE)",
-         {"name": "Oncelikli ve Acik", "attr1": "Priority", "op1": "equals",
-          "val1": "High", "logic": "AND", "attr2": "Status",
-          "op2": "not_equals", "val2": "Closed"}),
+         {"name": "Oncelikli ve Acik", "conditions": [
+             {"attr": "Priority", "op": "equals", "val": "High"},
+             {"logic": "AND", "attr": "Status", "op": "not_equals",
+              "val": "Closed"}]}),
+        ("Üç koşullu örnek (VEYA + VE)",
+         {"name": "Aday Gereksinimler", "conditions": [
+             {"attr": "Status", "op": "equals", "val": "Proposed"},
+             {"logic": "OR", "attr": "Status", "op": "equals",
+              "val": "In Review"},
+             {"logic": "AND", "attr": "Priority", "op": "equals",
+              "val": "High"}]}),
     ]
 
     LOGIC_TR = {"AND": "VE", "OR": "VEYA"}
@@ -709,11 +812,12 @@ def run_gui(test_hook=None):
             self.edit_index = None        # None = yeni kayıt formu
             self._form_snapshot = None    # son yüklenen formun normalize hali
             self._suppress_select = False
+            self.rows = []                # dinamik koşul satırları
 
             self._setup_fonts_and_style()
             root.title(APP_TITLE)
-            root.geometry("1000x660")
-            root.minsize(880, 580)
+            root.geometry("1020x680")
+            root.minsize(900, 600)
             root.configure(bg=BG)
 
             self._build_header()
@@ -854,9 +958,9 @@ def run_gui(test_hook=None):
             tmpl_btn = ttk.Menubutton(top, text="Hazır Şablonlar")
             tmpl_btn.pack(side="right")
             tmpl_menu = tk.Menu(tmpl_btn, tearoff=0)
-            for label, data in TEMPLATES:
+            for tlabel, tdata in TEMPLATES:
                 tmpl_menu.add_command(
-                    label=label, command=lambda d=data: self.apply_template(d))
+                    label=tlabel, command=lambda d=tdata: self.apply_template(d))
             tmpl_btn.configure(menu=tmpl_menu)
 
             ttk.Label(right, text="Filtre adı", style="Muted.TLabel").pack(
@@ -865,48 +969,29 @@ def run_gui(test_hook=None):
             self.name_entry = ttk.Entry(right, textvariable=self.name_var,
                                         font=(self.F, 11))
             self.name_entry.pack(fill="x")
+            self.name_var.trace_add("write", lambda *_: self._on_form_change())
+            self.name_entry.bind("<Return>", lambda e: self.on_save_form())
 
-            # koşul 1
-            ttk.Label(right, text="Koşul", style="Muted.TLabel").pack(
+            # koşullar (dinamik satırlar)
+            ttk.Label(right, text="Koşullar", style="Muted.TLabel").pack(
                 anchor="w", pady=(14, 2))
-            self.attr1_var = tk.StringVar()
-            self.op1_var = tk.StringVar(value=OP_LABEL_BY_CODE["contains"])
-            self.val1_var = tk.StringVar()
-            r1 = self._condition_row(right, self.attr1_var, self.op1_var, self.val1_var)
-            r1.pack(fill="x")
-            self.val1_entry = r1.val_entry
+            self.conds_container = tk.Frame(right, bg=CARD)
+            self.conds_container.pack(fill="x")
 
-            # koşul 2 (isteğe bağlı) — link ve satır aynı sabit alanda yer değiştirir
-            self.cond2_area = tk.Frame(right, bg=CARD)
-            self.cond2_area.pack(fill="x")
-            self.cond2_link = ttk.Button(self.cond2_area,
-                                         text="+ İkinci koşul ekle (VE / VEYA)",
-                                         style="Link.TButton", command=self.show_cond2)
-            self.cond2_link.pack(anchor="w", pady=(8, 0))
+            self.add_link = ttk.Button(right,
+                                       text="+ Koşul ekle (VE / VEYA)",
+                                       style="Link.TButton",
+                                       command=self.on_add_cond)
+            self.add_link.pack(anchor="w", pady=(8, 0))
 
-            self.cond2_frame = tk.Frame(self.cond2_area, bg=CARD)
-            self.logic_var = tk.StringVar(value="VE")
-            lrow = tk.Frame(self.cond2_frame, bg=CARD)
-            lrow.pack(fill="x", pady=(8, 2))
-            ttk.Combobox(lrow, textvariable=self.logic_var, values=["VE", "VEYA"],
-                         state="readonly", width=7).pack(side="left")
-            ttk.Label(lrow, text="  aşağıdaki koşulla birleştir:",
-                      style="Muted.TLabel").pack(side="left")
-            ttk.Button(lrow, text="× koşulu kaldır", style="Link.TButton",
-                       command=self.hide_cond2).pack(side="right")
-            self.attr2_var = tk.StringVar()
-            self.op2_var = tk.StringVar(value=OP_LABEL_BY_CODE["contains"])
-            self.val2_var = tk.StringVar()
-            r2 = self._condition_row(self.cond2_frame, self.attr2_var,
-                                     self.op2_var, self.val2_var)
-            r2.pack(fill="x")
-            self.val2_entry = r2.val_entry
-            self.cond2_visible = False
+            self.fold_hint = ttk.Label(
+                right, style="Muted.TLabel",
+                text="Koşullar soldan sağa birleştirilir: ((1. ∘ 2.) ∘ 3.) …")
 
             # canlı önizleme
             ttk.Label(right, text="Önizleme — filtre DOORS'ta şunu yapacak:",
                       style="Muted.TLabel").pack(anchor="w", pady=(16, 2))
-            self.preview = tk.Text(right, height=2, bd=0, wrap="word",
+            self.preview = tk.Text(right, height=3, bd=0, wrap="word",
                                    bg="#f4f7fb", padx=10, pady=8,
                                    font=(self.F, 10), cursor="arrow")
             self.preview.pack(fill="x")
@@ -930,33 +1015,114 @@ def run_gui(test_hook=None):
                                        command=self.on_save_form)
             self.save_btn.pack(anchor="e", pady=(10, 0))
 
-            for var in (self.name_var, self.attr1_var, self.op1_var, self.val1_var,
-                        self.logic_var, self.attr2_var, self.op2_var, self.val2_var):
-                var.trace_add("write", lambda *_: self._on_form_change())
-            for w in (self.name_entry, self.val1_entry, self.val2_entry):
-                w.bind("<Return>", lambda e: self.on_save_form())
+            self._build_rows([new_cond()])
 
-        def _condition_row(self, parent, attr_var, op_var, val_var):
-            row = tk.Frame(parent, bg=CARD)
-            attr_cb = ttk.Combobox(row, textvariable=attr_var, width=22,
+        # ------------------------------------------------ koşul satırları
+        def _build_rows(self, conds):
+            """Koşul satırlarını verilen listeye göre baştan kurar."""
+            for r in self.rows:
+                r["frame"].destroy()
+            self.rows = []
+            for i, c in enumerate(conds):
+                self._append_row(c, first=(i == 0))
+            self._update_row_controls()
+            self._on_form_change()
+
+        def _append_row(self, c, first):
+            i = len(self.rows)
+            frame = tk.Frame(self.conds_container, bg=CARD)
+            frame.grid(row=i, column=0, sticky="ew", pady=2)
+            self.conds_container.columnconfigure(0, weight=1)
+            frame.columnconfigure(1, weight=3)
+            frame.columnconfigure(3, weight=2)
+
+            logic_var = None
+            if first:
+                tk.Label(frame, text="", bg=CARD, width=7).grid(row=0, column=0)
+            else:
+                logic_var = tk.StringVar(
+                    value=LOGIC_TR.get(c.get("logic", "AND"), "VE"))
+                cb = ttk.Combobox(frame, textvariable=logic_var,
+                                  values=["VE", "VEYA"], state="readonly", width=5)
+                cb.grid(row=0, column=0, padx=(0, 4))
+                logic_var.trace_add("write", lambda *_: self._on_form_change())
+
+            attr_var = tk.StringVar(value=c.get("attr", ""))
+            attr_cb = ttk.Combobox(frame, textvariable=attr_var, width=20,
                                    values=COMMON_ATTRS, font=(self.F, 10))
             attr_cb.configure(postcommand=lambda cb=attr_cb: cb.configure(
                 values=self._attr_suggestions()))
-            attr_cb.pack(side="left", fill="x", expand=True)
-            op_cb = ttk.Combobox(row, textvariable=op_var, state="readonly", width=13,
-                                 values=[lbl for _, lbl in OPERATORS])
-            op_cb.pack(side="left", padx=6)
-            val_entry = ttk.Entry(row, textvariable=val_var, width=20,
+            attr_cb.grid(row=0, column=1, sticky="ew")
+
+            op_var = tk.StringVar(
+                value=OP_LABEL_BY_CODE.get(c.get("op", "contains"), OPERATORS[0][1]))
+            op_cb = ttk.Combobox(frame, textvariable=op_var, state="readonly",
+                                 width=13, values=[lbl for _, lbl in OPERATORS])
+            op_cb.grid(row=0, column=2, padx=6)
+
+            val_var = tk.StringVar(value=c.get("val", ""))
+            val_entry = ttk.Entry(frame, textvariable=val_var, width=18,
                                   font=(self.F, 10))
-            val_entry.pack(side="left", fill="x", expand=True)
-            row.val_entry = val_entry
-            return row
+            val_entry.grid(row=0, column=3, sticky="ew")
+            val_entry.bind("<Return>", lambda e: self.on_save_form())
+
+            rm_btn = ttk.Button(frame, text="×", style="Link.TButton", width=2,
+                                command=lambda idx=i: self.on_remove_cond(idx))
+            rm_btn.grid(row=0, column=4, padx=(4, 0))
+
+            for var in (attr_var, op_var, val_var):
+                var.trace_add("write", lambda *_: self._on_form_change())
+
+            self.rows.append({"frame": frame, "logic_var": logic_var,
+                              "attr_var": attr_var, "attr_cb": attr_cb,
+                              "op_var": op_var, "val_var": val_var,
+                              "val_entry": val_entry, "rm_btn": rm_btn})
+
+        def _update_row_controls(self):
+            single = len(self.rows) <= 1
+            for r in self.rows:
+                r["rm_btn"].state(["disabled"] if single else ["!disabled"])
+            self.add_link.state(
+                ["disabled"] if len(self.rows) >= MAX_CONDITIONS else ["!disabled"])
+            if len(self.rows) > 2:
+                self.fold_hint.pack(anchor="w", pady=(4, 0), after=self.add_link)
+            else:
+                self.fold_hint.pack_forget()
+
+        def _rows_to_conds(self):
+            conds = []
+            for i, r in enumerate(self.rows):
+                logic = "AND"
+                if i > 0 and r["logic_var"] is not None:
+                    logic = LOGIC_FROM_TR.get(r["logic_var"].get(), "AND")
+                conds.append({
+                    "logic": logic,
+                    "attr": r["attr_var"].get().strip(),
+                    "op": OP_CODE_BY_LABEL.get(r["op_var"].get(), "contains"),
+                    "val": r["val_var"].get().strip(),
+                })
+            return conds
+
+        def on_add_cond(self):
+            if len(self.rows) >= MAX_CONDITIONS:
+                return
+            conds = self._rows_to_conds()
+            conds.append(new_cond())
+            self._build_rows(conds)
+            self.rows[-1]["attr_cb"].focus_set()  # odak yeni satırın attribute kutusuna
+
+        def on_remove_cond(self, idx):
+            if len(self.rows) <= 1:
+                return
+            conds = self._rows_to_conds()
+            del conds[idx]
+            self._build_rows(conds)
 
         def _attr_suggestions(self):
             used = []
             for f in self.filters:
-                for k in ("attr1", "attr2"):
-                    a = f.get(k, "")
+                for c in f["conditions"]:
+                    a = c.get("attr", "")
                     if a and a not in used and a not in COMMON_ATTRS:
                         used.append(a)
             return COMMON_ATTRS + used
@@ -986,56 +1152,19 @@ def run_gui(test_hook=None):
             self.err_lbl.configure(text="")
 
         def _sync_value_states(self):
-            op1 = OP_CODE_BY_LABEL.get(self.op1_var.get(), "contains")
-            self.val1_entry.configure(
-                state="disabled" if op1 in NO_VALUE_OPS else "normal")
-            op2 = OP_CODE_BY_LABEL.get(self.op2_var.get(), "contains")
-            self.val2_entry.configure(
-                state="disabled" if op2 in NO_VALUE_OPS else "normal")
-
-        def show_cond2(self):
-            self.cond2_visible = True
-            self.cond2_link.pack_forget()
-            self.cond2_frame.pack(fill="x")
-            self._render_preview()
-
-        def hide_cond2(self):
-            self.cond2_visible = False
-            self.cond2_frame.pack_forget()
-            self.cond2_link.pack(anchor="w", pady=(8, 0))
-            self._render_preview()
+            for r in self.rows:
+                op = OP_CODE_BY_LABEL.get(r["op_var"].get(), "contains")
+                r["val_entry"].configure(
+                    state="disabled" if op in NO_VALUE_OPS else "normal")
 
         def _form_to_dict(self):
-            d = new_filter_dict()
-            d["name"] = self.name_var.get().strip()
-            d["attr1"] = self.attr1_var.get().strip()
-            d["op1"] = OP_CODE_BY_LABEL.get(self.op1_var.get(), "contains")
-            d["val1"] = "" if d["op1"] in NO_VALUE_OPS else self.val1_var.get().strip()
-            if self.cond2_visible:
-                d["logic"] = LOGIC_FROM_TR.get(self.logic_var.get(), "AND")
-                d["attr2"] = self.attr2_var.get().strip()
-                d["op2"] = OP_CODE_BY_LABEL.get(self.op2_var.get(), "contains")
-                d["val2"] = ("" if d["op2"] in NO_VALUE_OPS
-                             else self.val2_var.get().strip())
-            return d
+            return {"name": self.name_var.get().strip(),
+                    "conditions": self._rows_to_conds()}
 
         def _dict_to_form(self, d):
+            d = normalize_filter(d)
             self.name_var.set(d["name"])
-            self.attr1_var.set(d["attr1"])
-            self.op1_var.set(OP_LABEL_BY_CODE.get(d["op1"], OPERATORS[0][1]))
-            self.val1_var.set(d["val1"])
-            if d["logic"] in ("AND", "OR"):
-                self.logic_var.set(LOGIC_TR[d["logic"]])
-                self.attr2_var.set(d["attr2"])
-                self.op2_var.set(OP_LABEL_BY_CODE.get(d["op2"], OPERATORS[0][1]))
-                self.val2_var.set(d["val2"])
-                if not self.cond2_visible:
-                    self.show_cond2()
-            else:
-                self.attr2_var.set("")
-                self.val2_var.set("")
-                if self.cond2_visible:
-                    self.hide_cond2()
+            self._build_rows(d["conditions"])
             self._form_snapshot = normalize_filter(self._form_to_dict())
             self._render_preview()
 
@@ -1047,24 +1176,21 @@ def run_gui(test_hook=None):
         # ------------------------------------------------ önizleme
         def _preview_segments(self, d):
             segs = []
-
-            def cond(attr, op, val):
-                segs.append(("«%s»" % (attr or "…?"), "attr"))
-                segs.append((" " + OP_LABEL_BY_CODE.get(op, op), "op"))
-                if op not in NO_VALUE_OPS:
-                    segs.append((' "%s"' % (val or "…?"), "val"))
-
-            cond(d["attr1"], d["op1"], d["val1"])
-            if d["logic"] in ("AND", "OR"):
-                segs.append(("   %s   " % LOGIC_TR[d["logic"]], "logic"))
-                cond(d["attr2"], d["op2"], d["val2"])
+            for i, c in enumerate(d["conditions"]):
+                if i > 0:
+                    segs.append(("   %s   " % LOGIC_TR[c["logic"]], "logic"))
+                segs.append(("«%s»" % (c["attr"] or "…?"), "attr"))
+                segs.append((" " + OP_LABEL_BY_CODE.get(c["op"], c["op"]), "op"))
+                if c["op"] not in NO_VALUE_OPS:
+                    segs.append((' "%s"' % (c["val"] or "…?"), "val"))
             return segs
 
         def _render_preview(self):
-            d = self._form_to_dict()
+            d = normalize_filter(self._form_to_dict())
+            empty = all(not c["attr"] and not c["val"] for c in d["conditions"])
             self.preview.configure(state="normal")
             self.preview.delete("1.0", "end")
-            if not d["attr1"] and not d["val1"] and not d["attr2"]:
+            if empty:
                 self.preview.insert(
                     "end", "Yukarıda attribute, operatör ve değer seçtikçe "
                            "filtrenin ne yapacağını burada göreceksiniz.", "hint")
@@ -1075,9 +1201,7 @@ def run_gui(test_hook=None):
             self.preview.configure(state="disabled")
 
         def _summary_text(self, d):
-            parts = []
-            for text, _tag in self._preview_segments(d):
-                parts.append(text)
+            parts = [text for text, _tag in self._preview_segments(d)]
             s = "".join(parts).replace("   ", " ").strip()
             return (s[:57] + "…") if len(s) > 58 else s
 
@@ -1112,9 +1236,8 @@ def run_gui(test_hook=None):
                 try:
                     if self.edit_index is not None:
                         self.tree.selection_set(str(self.edit_index))
-                    else:
-                        if self.tree.selection():
-                            self.tree.selection_remove(*self.tree.selection())
+                    elif self.tree.selection():
+                        self.tree.selection_remove(*self.tree.selection())
                 finally:
                     self._suppress_select = False
                 return
@@ -1165,8 +1288,7 @@ def run_gui(test_hook=None):
             self.name_entry.focus_set()
 
         def apply_template(self, data):
-            d = new_filter_dict()
-            d.update(data)
+            d = normalize_filter(dict(data))
             base, n = d["name"], 2
             existing = {f["name"] for f in self.filters}
             while d["name"] in existing:
@@ -1181,9 +1303,12 @@ def run_gui(test_hook=None):
                 self._suppress_select = False
             self._dict_to_form(d)
             # şablon dolduktan sonra kullanıcı ilk boş alana odaklansın
-            if not d["val1"] and d["op1"] not in NO_VALUE_OPS:
-                self.val1_entry.focus_set()
-            elif not d["attr1"]:
+            for r in self.rows:
+                op = OP_CODE_BY_LABEL.get(r["op_var"].get(), "contains")
+                if op not in NO_VALUE_OPS and not r["val_var"].get().strip():
+                    r["val_entry"].focus_set()
+                    break
+            else:
                 self.name_entry.focus_set()
             self._set_status("Şablon yüklendi — değeri doldurup kaydedin.")
 
@@ -1192,7 +1317,7 @@ def run_gui(test_hook=None):
             if not sel:
                 self._set_status("Kopyalamak için listeden bir filtre seçin.", ERR_RED)
                 return
-            src = dict(self.filters[int(sel[0])])
+            src = normalize_filter(self.filters[int(sel[0])])
             base = src["name"] + " (kopya)"
             name, n = base, 2
             existing = {f["name"] for f in self.filters}
@@ -1200,7 +1325,7 @@ def run_gui(test_hook=None):
                 name = "%s %d" % (base, n)
                 n += 1
             src["name"] = name
-            self.filters.append(normalize_filter(src))
+            self.filters.append(src)
             self.edit_index = len(self.filters) - 1
             self._refresh_tree(select=self.edit_index)
             self._dict_to_form(self.filters[self.edit_index])
@@ -1315,7 +1440,7 @@ def run_gui(test_hook=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="DOORS Kalıcı Filtre Yöneticisi — Filtre Editörü. "
+        description="DOORS Filtre Yöneticisi — Filtre Editörü. "
                     "Argümansız çalıştırılırsa GUI açılır.")
     parser.add_argument("--emit-dxl", metavar="CIKTI.dxl",
                         help="GUI açmadan DXL dosyası üret.")

@@ -1,47 +1,51 @@
-# DOORS Filter Manager veri dosyasi (v1)
+# DOORS Filter Manager veri dosyasi (v2)
+# Kosullar soldan saga birlestirilir: ((k1 . k2) . k3) ...
 # Bu dosya doors_filter_editor.py tarafindan uretilir; elle duzenlemeyin.
 
 FILTER
 name=Onayli Gereksinimler
-attr1=Status
-op1=equals
-val1=Approved
-logic=NONE
-attr2=
-op2=contains
-val2=
+attr=Status
+op=equals
+val=Approved
 END
 
 FILTER
 name='shall' Iceren Nesneler
-attr1=Object Text
-op1=contains
-val1=shall
-logic=NONE
-attr2=
-op2=contains
-val2=
+attr=Object Text
+op=contains
+val=shall
 END
 
 FILTER
 name=Yuksek Oncelik ve Kapanmamis
-attr1=Priority
-op1=equals
-val1=High
+attr=Priority
+op=equals
+val=High
 logic=AND
-attr2=Status
-op2=not_equals
-val2=Closed
+attr=Status
+op=not_equals
+val=Closed
 END
 
 FILTER
 name=Gerekcesi Bos Olanlar
-attr1=Rationale
-op1=is_empty
-val1=
-logic=NONE
-attr2=
-op2=contains
-val2=
+attr=Rationale
+op=is_empty
+val=
+END
+
+FILTER
+name=Aday Gereksinimler (3 kosul)
+attr=Status
+op=equals
+val=Proposed
+logic=OR
+attr=Status
+op=equals
+val=In Review
+logic=AND
+attr=Priority
+op=equals
+val=High
 END
 

@@ -22,21 +22,26 @@ olarak ASCII'dir; Türkçe karakterli adlar da desteklenir, aşağıya bakın).
 
   ```
   FILTER
-  name=Onaylı Gereksinimler
-  attr1=Status
-  op1=equals
-  val1=Approved
-  logic=NONE
-  attr2=
-  op2=contains
-  val2=
+  name=Yüksek Öncelik ve Kapanmamış
+  attr=Priority
+  op=equals
+  val=High
+  logic=AND
+  attr=Status
+  op=not_equals
+  val=Closed
   END
   ```
 
-  Kurallar: `#` ile başlayan satır yorumdur; kayıtlar `FILTER`/`END` blokları
-  içindedir; her satır **ilk** `=` işaretinden bölünür (değerler `=` içerebilir);
-  değerler satır sonu içeremez (editör bunu engeller). Bu format DXL'de
-  ~40 satırlık, kırılgan olmayan bir parser ile okunur. **`.dat` dosyasını elle
+  Kurallar (format v2): `#` ile başlayan satır yorumdur; kayıtlar
+  `FILTER`/`END` blokları içindedir; her satır **ilk** `=` işaretinden bölünür
+  (değerler `=` içerebilir); her koşul `attr=`, `op=`, `val=` üçlüsüdür ve
+  koşullar arasına `logic=AND|OR` satırı girer. Bir filtre **1..10 koşul**
+  içerebilir; koşullar dosyadaki sırayla **soldan sağa** birleştirilir:
+  `((k1 ∘ k2) ∘ k3) …`. Eski v1 dosyaları (attr1/op1/… anahtarlı) hem Python
+  editör hem DXL parser tarafından geriye dönük uyumlu okunur. Değerler satır
+  sonu içeremez (editör bunu engeller). Bu format DXL'de ~60 satırlık,
+  kırılgan olmayan bir durum makinesiyle okunur. **`.dat` dosyasını elle
   düzenlemeyin; her zaman editörden kaydedin.**
 - Kodlama: `.json` UTF-8; `.dat` ise DOORS klasik DXL dosyaları yerel ANSI kod
   sayfasıyla okuduğu için **cp1254** (Türkçe Windows) ile yazılır. Farklı yerel
@@ -60,9 +65,12 @@ python doors_filter_editor.py
 2. **+ Yeni Filtre** veya **Hazır Şablonlar** ile başlayın. Formda cümle kurar
    gibi ilerlersiniz: attribute (yaygın DOORS attribute'ları öneri listesinde),
    Türkçe operatör (içerir / eşittir / eşit değildir / boştur / büyüktür /
-   küçüktür) ve değer. **+ İkinci koşul ekle** bağlantısıyla VE/VEYA'lı ikinci
-   koşul açılır. Alttaki **canlı önizleme**, filtrenin DOORS'ta ne yapacağını
-   siz yazarken renkli bir cümle olarak gösterir.
+   küçüktür) ve değer. **+ Koşul ekle (VE / VEYA)** bağlantısıyla istediğiniz
+   kadar (en çok 10) koşul ekler, her koşulun başındaki açılır kutudan VE/VEYA
+   bağlacını seçer, `×` ile koşulu kaldırırsınız. Üçten fazla koşulda birleşim
+   **soldan sağa** uygulanır (parantez gruplaması yoktur) ve form bunu bir
+   ipucuyla hatırlatır. Alttaki **canlı önizleme**, filtrenin DOORS'ta ne
+   yapacağını siz yazarken renkli bir cümle olarak gösterir.
 3. **Filtreyi Kaydet** → filtre listeye eklenir ve `filters.json` +
    `filters.dat` **otomatik olarak** diske yazılır (ayrı bir "dosyaya kaydet"
    adımı yoktur; durum çubuğunda "✓ Kaydedildi" görünür). **Kopyala** mevcut
@@ -153,6 +161,10 @@ bunlara dikkatle, kolay değiştirilebilir şekilde yazıldı):
 
 ## Bilinen sınırlamalar
 
+- Koşullar parantezle gruplanamaz; birleşim her zaman soldan sağadır:
+  `k1 VEYA k2 VE k3` = `((k1 VEYA k2) VE k3)`. Karmaşık gruplama gerekiyorsa
+  filtreyi ikiye bölüp DOORS panelindeki "AND/OR ile Ekle" düğmeleriyle
+  birleştirebilirsiniz.
 - Çok değerli (multi-valued) enumeration attribute'larında `equals` tam eşleşme
   arar; "değerlerden birini içeriyor" davranışı için DXL `includes()` gerekir
   (bu sürümde yok, ihtiyaç olursa `buildCondition`'a operatör olarak eklenebilir).

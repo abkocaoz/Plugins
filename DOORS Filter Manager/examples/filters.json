@@ -1,46 +1,39 @@
 {
   "format": "doors-filter-manager",
-  "version": 1,
+  "version": 2,
   "filters": [
     {
       "name": "Onayli Gereksinimler",
-      "attr1": "Status",
-      "op1": "equals",
-      "val1": "Approved",
-      "logic": "NONE",
-      "attr2": "",
-      "op2": "contains",
-      "val2": ""
+      "conditions": [
+        {"attr": "Status", "op": "equals", "val": "Approved"}
+      ]
     },
     {
       "name": "'shall' Iceren Nesneler",
-      "attr1": "Object Text",
-      "op1": "contains",
-      "val1": "shall",
-      "logic": "NONE",
-      "attr2": "",
-      "op2": "contains",
-      "val2": ""
+      "conditions": [
+        {"attr": "Object Text", "op": "contains", "val": "shall"}
+      ]
     },
     {
       "name": "Yuksek Oncelik ve Kapanmamis",
-      "attr1": "Priority",
-      "op1": "equals",
-      "val1": "High",
-      "logic": "AND",
-      "attr2": "Status",
-      "op2": "not_equals",
-      "val2": "Closed"
+      "conditions": [
+        {"attr": "Priority", "op": "equals", "val": "High"},
+        {"attr": "Status", "op": "not_equals", "val": "Closed", "logic": "AND"}
+      ]
     },
     {
       "name": "Gerekcesi Bos Olanlar",
-      "attr1": "Rationale",
-      "op1": "is_empty",
-      "val1": "",
-      "logic": "NONE",
-      "attr2": "",
-      "op2": "contains",
-      "val2": ""
+      "conditions": [
+        {"attr": "Rationale", "op": "is_empty", "val": ""}
+      ]
+    },
+    {
+      "name": "Aday Gereksinimler (3 kosul)",
+      "conditions": [
+        {"attr": "Status", "op": "equals", "val": "Proposed"},
+        {"attr": "Status", "op": "equals", "val": "In Review", "logic": "OR"},
+        {"attr": "Priority", "op": "equals", "val": "High", "logic": "AND"}
+      ]
     }
   ]
 }

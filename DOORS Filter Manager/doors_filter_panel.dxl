@@ -5,7 +5,13 @@
 //
 // Bu dosya doors_filter_editor.py (Python) tarafindan uretilir.
 // Asagidaki DAT_FILE yolu uretim sirasinda kullaniciya gore doldurulur.
-// filters.dat dosyasi ayni Python editorun "Kaydet" adiminda uretilir.
+// filters.dat dosyasi ayni Python editorun kayit adiminda uretilir.
+//
+// Veri formati (v2): FILTER/END bloklari; name= ve tekrarlanan
+// attr=/op=/val= gruplari; gruplar arasinda logic=AND|OR satiri.
+// Kosullar dosyadaki sirayla soldan saga birlestirilir:
+//   ((k1 . k2) . k3) ...
+// Eski v1 anahtarlari (attr1/op1/...) sondaki rakam atilarak okunur.
 //
 // Calistirma: formal modul penceresinde Tools > Edit DXL > Load... > Run
 // Panel modsuzdur (non-modal): acikken modulde calismaya devam edebilirsiniz.
@@ -20,20 +26,25 @@ pragma runLim, 0
 string DAT_FILE = "C:\\DOORS_Filters\\filters.dat"
 
 int MAX_FILTERS = 300
+int MAX_CONDS   = 2000
 
 //---------------------------------------------------------------------------
 // Filtre kayitlari (filters.dat'tan yuklenir)
+// Her filtre, kosul havuzunda [gCondStart, gCondStart+gCondCount) araligini
+// kullanir. gCLogic[k], k. kosulu bir oncekine baglayan operatordur
+// ("AND"/"OR"; her filtrenin ilk kosulunda bos string).
 //---------------------------------------------------------------------------
 
 int    gCount = 0
 string gNames[MAX_FILTERS]
-string gAttr1[MAX_FILTERS]
-string gOp1[MAX_FILTERS]
-string gVal1[MAX_FILTERS]
-string gLogic[MAX_FILTERS]
-string gAttr2[MAX_FILTERS]
-string gOp2[MAX_FILTERS]
-string gVal2[MAX_FILTERS]
+int    gCondStart[MAX_FILTERS]
+int    gCondCount[MAX_FILTERS]
+
+int    gCondTotal = 0
+string gCAttr[MAX_CONDS]
+string gCOp[MAX_CONDS]
+string gCVal[MAX_CONDS]
+string gCLogic[MAX_CONDS]
 
 string gLoadError = ""
 
@@ -90,6 +101,19 @@ bool splitKeyValue(string line, string &key, string &val) {
     return false
 }
 
+// Anahtarin sonundaki rakamlari atar: "attr2" -> "attr" (v1 uyumu).
+string baseKey(string k) {
+    int n = length k
+    int j = n
+    while (j > 0) {
+        char c = k[j-1]
+        if (c >= '0' && c <= '9') j--
+        else break
+    }
+    if (j <= 0 || j == n) return k
+    return k[0:j-1]
+}
+
 bool isKnownOp(string op) {
     if (op == "contains")     return true
     if (op == "equals")       return true
@@ -98,10 +122,6 @@ bool isKnownOp(string op) {
     if (op == "greater_than") return true
     if (op == "less_than")    return true
     return false
-}
-
-bool opNeedsValue(string op) {
-    return (op != "is_empty")
 }
 
 bool attrExists(Module m, string attrName) {
@@ -114,13 +134,28 @@ bool attrExists(Module m, string attrName) {
 // filters.dat yukleme
 //---------------------------------------------------------------------------
 
+// Bekleyen kosulu havuza ekler. lg: bu kosulu oncekine baglayan operator.
+void commitPending(string a, string o, string v, string lg, int &curCount) {
+    if (a == "" || o == "") return
+    if (gCondTotal >= MAX_CONDS) return
+    gCAttr[gCondTotal] = a
+    gCOp[gCondTotal]   = o
+    gCVal[gCondTotal]  = v
+    if (curCount == 0) gCLogic[gCondTotal] = ""
+    else if (lg == "OR") gCLogic[gCondTotal] = "OR"
+    else gCLogic[gCondTotal] = "AND"
+    gCondTotal++
+    curCount++
+}
+
 bool loadFilters() {
     gCount = 0
+    gCondTotal = 0
     gLoadError = ""
 
     Stat st = create(DAT_FILE)
     if (null st) {
-        gLoadError = "Veri dosyasi bulunamadi:\n" DAT_FILE "\n\nOnce Python editorde 'Dosyaya Kaydet' yapin."
+        gLoadError = "Veri dosyasi bulunamadi:\n" DAT_FILE "\n\nOnce Python editorde filtre kaydedin."
         return false
     }
     delete st
@@ -135,8 +170,13 @@ bool loadFilters() {
     string key = ""
     string val = ""
     bool inRec = false
-    string nm = ""; string a1 = ""; string o1 = ""; string v1 = ""
-    string lg = ""; string a2 = ""; string o2 = ""; string v2 = ""
+    string nm = ""
+    int recStart = 0
+    int curCount = 0
+    // bekleyen (henuz havuza yazilmamis) kosul:
+    string pAttr = ""; string pOp = ""; string pVal = ""
+    string pLogic = ""         // bekleyen kosulu oncekine baglayan operator
+    string pendingLogic = ""   // en son okunan logic= degeri (sonraki kosul icin)
 
     while (true) {
         if (end of inp) break
@@ -147,19 +187,24 @@ bool loadFilters() {
 
         if (line == "FILTER") {
             inRec = true
-            nm = ""; a1 = ""; o1 = ""; v1 = ""
-            lg = "NONE"; a2 = ""; o2 = ""; v2 = ""
+            nm = ""
+            recStart = gCondTotal
+            curCount = 0
+            pAttr = ""; pOp = ""; pVal = ""
+            pLogic = ""; pendingLogic = ""
             continue
         }
 
         if (line == "END") {
-            if (inRec && nm != "" && a1 != "" && o1 != "") {
-                if (gCount < MAX_FILTERS) {
+            if (inRec) {
+                commitPending(pAttr, pOp, pVal, pLogic, curCount)
+                if (nm != "" && curCount > 0 && gCount < MAX_FILTERS) {
                     gNames[gCount] = nm
-                    gAttr1[gCount] = a1;  gOp1[gCount] = o1;  gVal1[gCount] = v1
-                    gLogic[gCount] = lg
-                    gAttr2[gCount] = a2;  gOp2[gCount] = o2;  gVal2[gCount] = v2
+                    gCondStart[gCount] = recStart
+                    gCondCount[gCount] = curCount
                     gCount++
+                } else {
+                    gCondTotal = recStart   // gecersiz kayit: kosullari geri al
                 }
             }
             inRec = false
@@ -169,15 +214,17 @@ bool loadFilters() {
         if (!inRec) continue
 
         if (splitKeyValue(line, key, val)) {
-            key = trimStr(key)
-            if      (key == "name")  nm = val
-            else if (key == "attr1") a1 = val
-            else if (key == "op1")   o1 = val
-            else if (key == "val1")  v1 = val
-            else if (key == "logic") lg = trimStr(val)
-            else if (key == "attr2") a2 = val
-            else if (key == "op2")   o2 = val
-            else if (key == "val2")  v2 = val
+            key = baseKey(trimStr(key))
+            if (key == "name") nm = val
+            else if (key == "attr") {
+                if (pAttr != "") commitPending(pAttr, pOp, pVal, pLogic, curCount)
+                pAttr = val; pOp = ""; pVal = ""
+                pLogic = trimStr(pendingLogic)
+                pendingLogic = ""
+            }
+            else if (key == "op")    pOp = val
+            else if (key == "val")   pVal = val
+            else if (key == "logic") pendingLogic = val
         }
     }
     close inp
@@ -191,18 +238,14 @@ bool loadFilters() {
 // Uygulamadan ONCE cagrilir; "" donerse kayit gecerli demektir.
 // Attribute modulde yoksa script cokmez, aciklayici mesaj doner.
 string validateRecord(Module m, int i) {
-    if (!attrExists(m, gAttr1[i])) {
-        return "Oznitelik (attribute) bu modulde tanimli degil: '" gAttr1[i] "'"
-    }
-    if (!isKnownOp(gOp1[i])) {
-        return "Bilinmeyen operator: '" gOp1[i] "'"
-    }
-    if (gLogic[i] == "AND" || gLogic[i] == "OR") {
-        if (!attrExists(m, gAttr2[i])) {
-            return "Oznitelik (attribute) bu modulde tanimli degil: '" gAttr2[i] "'"
+    int s = gCondStart[i]
+    int k
+    for (k = 0; k < gCondCount[i]; k++) {
+        if (!attrExists(m, gCAttr[s+k])) {
+            return "Oznitelik (attribute) bu modulde tanimli degil: '" gCAttr[s+k] "'"
         }
-        if (!isKnownOp(gOp2[i])) {
-            return "Bilinmeyen operator: '" gOp2[i] "'"
+        if (!isKnownOp(gCOp[s+k])) {
+            return "Bilinmeyen operator: '" gCOp[s+k] "'"
         }
     }
     return ""
@@ -219,11 +262,17 @@ Filter buildCondition(string attrName, string op, string val) {
     return (attribute attrName < val)   // less_than
 }
 
+// Kosullari soldan saga birlestirir: ((k1 . k2) . k3) ...
 Filter buildRecord(int i) {
-    Filter f1 = buildCondition(gAttr1[i], gOp1[i], gVal1[i])
-    if (gLogic[i] == "AND") return (f1 && buildCondition(gAttr2[i], gOp2[i], gVal2[i]))
-    if (gLogic[i] == "OR")  return (f1 || buildCondition(gAttr2[i], gOp2[i], gVal2[i]))
-    return f1
+    int s = gCondStart[i]
+    Filter f = buildCondition(gCAttr[s], gCOp[s], gCVal[s])
+    int k
+    for (k = 1; k < gCondCount[i]; k++) {
+        Filter fk = buildCondition(gCAttr[s+k], gCOp[s+k], gCVal[s+k])
+        if (gCLogic[s+k] == "OR") f = (f || fk)
+        else f = (f && fk)
+    }
+    return f
 }
 
 string describeCondition(string a, string o, string v) {
@@ -232,11 +281,15 @@ string describeCondition(string a, string o, string v) {
 }
 
 string describeRecord(int i) {
-    string s = describeCondition(gAttr1[i], gOp1[i], gVal1[i])
-    if (gLogic[i] == "AND" || gLogic[i] == "OR") {
-        s = s " " gLogic[i] " " describeCondition(gAttr2[i], gOp2[i], gVal2[i])
+    int s = gCondStart[i]
+    string out = ""
+    int k
+    for (k = 0; k < gCondCount[i]; k++) {
+        if (k > 0) out = out " " gCLogic[s+k] " "
+        out = out describeCondition(gCAttr[s+k], gCOp[s+k], gCVal[s+k])
     }
-    return s
+    if (gCondCount[i] > 2) out = out "   (soldan saga birlesir)"
+    return out
 }
 
 //---------------------------------------------------------------------------
