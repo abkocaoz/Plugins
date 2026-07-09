@@ -429,10 +429,6 @@ void onReload(DBE dbe) {
     set(gDetail, "")
 }
 
-void onClose(DBE dbe) {
-    hide gDlg
-}
-
 //---------------------------------------------------------------------------
 // Panel kurulumu ve baslangic
 //---------------------------------------------------------------------------
@@ -447,17 +443,49 @@ void buildPanel() {
     gListSize = n
 
     gDlg = create "DOORS Filtre Paneli - Kalici Filtre Yoneticisi"
-    label(gDlg, "Veri dosyasi: " DAT_FILE)
-    gLst    = list(gDlg, "Kayitli filtreler:", 480, 12, items)
-    gDetail = field(gDlg, "Secili filtre tanimi:", "", 60)
-    gStatus = field(gDlg, "Aktif filtre:", "(yok)", 60)
-    button(gDlg, "Uygula",          onApply)
-    button(gDlg, "AND ile Ekle",    onAnd)
-    button(gDlg, "OR ile Ekle",     onOr)
-    button(gDlg, "Detay",           onDetail)
-    button(gDlg, "Filtreyi Kaldir", onRemove)
-    button(gDlg, "Yeniden Yukle",   onReload)
-    button(gDlg, "Kapat",           onClose)
+
+    DBE lblFile = label(gDlg, "Veri dosyasi: " DAT_FILE)
+    gLst = list(gDlg, "Kayitli filtreler:", 320, 12, items)
+    gLst->"right"->"unattached"
+
+    gDetail = field(gDlg, "Secili filtre tanimi:", "", 55)
+    gStatus = field(gDlg, "Aktif filtre:", "(yok)", 55)
+
+    // Dugmeler listenin sag yanina dikey kolon olarak yerlesir.
+    // Hepsinin sol kenari listenin sag kenarina, sag kenari pencereye
+    // baglanir; boylece esit genislikte hizali bir kolon olusur.
+    // (Kapat dugmesi yok: DOORS pencereye kendi Close dugmesini ekler.)
+    DBE bApply  = button(gDlg, "Uygula",          onApply)
+    DBE bAnd    = button(gDlg, "AND ile Ekle",    onAnd)
+    DBE bOr     = button(gDlg, "OR ile Ekle",     onOr)
+    DBE bDetail = button(gDlg, "Detay",           onDetail)
+    DBE bRemove = button(gDlg, "Filtreyi Kaldir", onRemove)
+    DBE bReload = button(gDlg, "Yeniden Yukle",   onReload)
+
+    bApply->"top"->"spaced"->lblFile
+    bApply->"left"->"spaced"->gLst
+    bApply->"right"->"form"
+
+    bAnd->"top"->"spaced"->bApply
+    bAnd->"left"->"spaced"->gLst
+    bAnd->"right"->"form"
+
+    bOr->"top"->"spaced"->bAnd
+    bOr->"left"->"spaced"->gLst
+    bOr->"right"->"form"
+
+    bDetail->"top"->"spaced"->bOr
+    bDetail->"left"->"spaced"->gLst
+    bDetail->"right"->"form"
+
+    bRemove->"top"->"spaced"->bDetail
+    bRemove->"left"->"spaced"->gLst
+    bRemove->"right"->"form"
+
+    bReload->"top"->"spaced"->bRemove
+    bReload->"left"->"spaced"->gLst
+    bReload->"right"->"form"
+
     realize gDlg
     if (gCount > 0) set(gLst, 0)
     show gDlg

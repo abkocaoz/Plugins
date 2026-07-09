@@ -173,7 +173,8 @@ bunlara dikkatle, kolay değiştirilebilir şekilde yazıldı):
 - AND/OR birleştirme yalnızca **panelden** uygulanan filtreleri izler; DOORS
   arayüzünden elle kurulmuş bir filtreyle birleştirmez (DXL'de modülün mevcut
   `Filter` nesnesini okuyan güvenilir bir getter yoktur).
-- Panel `Kapat` ile gizlenir; script'i yeniden çalıştırmak yeni bir panel açar.
+- Panel, DOORS'un pencereye eklediği standart `Close` düğmesiyle kapatılır;
+  script'i yeniden çalıştırmak yeni bir panel açar.
 - DXL dosyası bilinçli olarak yalnız ASCII içerir (DXL editörü Unicode
   dosyaları güvenilir açamaz); bu yüzden panel metinleri aksansız Türkçedir.
   Filtre adları/değerlerindeki Türkçe karakterler `.dat` üzerinden cp1254 ile
