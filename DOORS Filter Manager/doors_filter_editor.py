@@ -589,9 +589,11 @@ int selIndex() {
 
 //---------------------------------------------------------------------------
 // Dugme geri cagrilari (callbacks)
+// DXL'de button() callback'leri DBE (dugme elemani) parametresi alir;
+// DB alan imzalar 'incorrect arguments for function (button)' hatasi verir.
 //---------------------------------------------------------------------------
 
-void onApply(DB db) {
+void onApply(DBE dbe) {
     Module m = targetModule()
     if (null m) return
     int i = selIndex()
@@ -638,10 +640,10 @@ void doCombine(bool useAnd) {
     set(gDetail, describeRecord(i))
 }
 
-void onAnd(DB db) { doCombine(true) }
-void onOr(DB db)  { doCombine(false) }
+void onAnd(DBE dbe) { doCombine(true) }
+void onOr(DBE dbe)  { doCombine(false) }
 
-void onRemove(DB db) {
+void onRemove(DBE dbe) {
     Module m = targetModule()
     if (null m) return
     filtering off
@@ -651,13 +653,13 @@ void onRemove(DB db) {
     set(gStatus, "(filtre yok - filtreleme kapali)")
 }
 
-void onDetail(DB db) {
+void onDetail(DBE dbe) {
     int i = selIndex()
     if (i < 0) { ack "Once listeden bir filtre secin."; return }
     set(gDetail, describeRecord(i))
 }
 
-void onReload(DB db) {
+void onReload(DBE dbe) {
     clearList()
     if (!loadFilters()) {
         ack("Veri dosyasi yeniden yuklenemedi:\n\n" gLoadError)
@@ -666,7 +668,7 @@ void onReload(DB db) {
     set(gDetail, "")
 }
 
-void onClose(DB db) {
+void onClose(DBE dbe) {
     hide gDlg
 }
 
