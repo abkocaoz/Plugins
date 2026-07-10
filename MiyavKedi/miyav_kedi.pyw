@@ -2,19 +2,23 @@
 """
 Miyav Kedi
 ==========
-Ekranin en altinda, gorev cubugu (taskbar) yuksekliginde seffaf bir seritte
+Ekranin en altinda, gorev cubugu / Dock yuksekliginde seffaf bir seritte
 yasayan minik bir kedi. Mouse imlecini yatayda takip eder; imlec durunca
-size doner ve "GTA Calis" balonu cikarir.
+konusma balonu cikarir ve sesli konusur.
 
-Kedi gorseli: yandaki `kedi.png` dosyasindan yuklenir (seffaf PNG).
-Dosya bulunamazsa program kendi cizdigi turuncu kediye doner.
+Kedi gorseli koda gomuludur; yandaki `kedi.png` varsa o tercih edilir.
 
 Kullanim:
-  - Calistir:  pythonw miyav_kedi.pyw   (veya dosyaya cift tikla)
+  - Windows: pythonw miyav_kedi.pyw  (veya dosyaya cift tikla)
+  - macOS:   python3 miyav_kedi.pyw  (ya da PyInstaller ile .app paketle)
   - Sol tik (kedinin ustune):  hemen konusur
   - Sag tik (kedinin ustune):  uygulamayi kapatir
+    (macOS'ta PyObjC kuruluysa kedi tiklamalari tamamen gecirir;
+     cikis Dock simgesinden yapilir)
 
-Gereksinim: Windows + Python 3.8+ (tkinter Python ile birlikte gelir).
+Gereksinim: Python 3.8+ (tkinter Python ile birlikte gelir).
+macOS'ta onerilen: pip3 install pyobjc-framework-Cocoa
+  -> Dock yuksekligi tam olculur + serit tiklamalari engellemez.
 """
 
 import math
@@ -25,6 +29,7 @@ import time
 import tkinter as tk
 
 IS_WINDOWS = sys.platform == "win32"
+IS_MAC = sys.platform == "darwin"
 
 # ---- Renkler -----------------------------------------------------------
 TRANS = "#ff00fe"          # seffaflik anahtar rengi (ekranda gorunmez)
@@ -115,40 +120,68 @@ def synth_purr_wav(rate=22050):
 
 
 class Sound:
-    """Balon cikarken ses: Miyav/Mrrr icin sentezlenmis WAV (winsound),
-    'GTA Çalış' icin Windows'un yerlesik TTS'i (SAPI, PowerShell uzerinden).
-    Windows disinda veya hata durumunda sessizce devre disi kalir."""
+    """Balon cikarken ses.
+
+    Windows: Miyav/Mrrr sentezlenmis WAV (winsound, bellekten),
+             'GTA Çalış' yerlesik TTS (SAPI, gizli PowerShell).
+    macOS:   Miyav/Mrrr gecici WAV dosyalarindan `afplay` ile,
+             'GTA Çalış' yerlesik `say` komutuyla (Turkce ses: Yelda).
+    Diger platformlarda ve hata durumunda sessizce devre disi kalir."""
 
     def __init__(self):
-        self.enabled = IS_WINDOWS
+        self.mode = "win" if IS_WINDOWS else ("mac" if IS_MAC else None)
         self._winsound = None
         self._wavs = {}
-        if not self.enabled:
-            return
         try:
-            import winsound
-            self._winsound = winsound
-            self._wavs = {"Miyav!": synth_meow_wav(),
-                          "Mrrr...": synth_purr_wav()}
+            if self.mode == "win":
+                import winsound
+                self._winsound = winsound
+                self._wavs = {"Miyav!": synth_meow_wav(),
+                              "Mrrr...": synth_purr_wav()}
+            elif self.mode == "mac":
+                import tempfile
+                for key, data in (("Miyav!", synth_meow_wav()),
+                                  ("Mrrr...", synth_purr_wav())):
+                    path = os.path.join(tempfile.gettempdir(),
+                                        "miyavkedi_%d.wav" % len(self._wavs))
+                    with open(path, "wb") as f:
+                        f.write(data)
+                    self._wavs[key] = path
         except Exception:
-            self.enabled = False
+            self.mode = None
+
+    @property
+    def enabled(self):
+        return self.mode is not None
 
     def play(self, text):
-        if not self.enabled:
+        if self.mode is None:
             return
         try:
             if text in self._wavs:
-                ws = self._winsound
-                ws.PlaySound(self._wavs[text],
-                             ws.SND_MEMORY | ws.SND_ASYNC | ws.SND_NODEFAULT)
+                if self.mode == "win":
+                    ws = self._winsound
+                    ws.PlaySound(self._wavs[text],
+                                 ws.SND_MEMORY | ws.SND_ASYNC
+                                 | ws.SND_NODEFAULT)
+                else:
+                    import subprocess
+                    subprocess.Popen(["afplay", self._wavs[text]])
             else:
                 self._speak(text)
         except Exception:
             pass
 
     def _speak(self, text):
-        import base64
         import subprocess
+        if self.mode == "mac":
+            import shlex
+            q = shlex.quote(text)
+            # Turkce ses (Yelda) varsa onu kullan, yoksa varsayilan ses
+            subprocess.Popen(
+                ["sh", "-c", "say -v Yelda %s 2>/dev/null || say %s" % (q, q)])
+            return
+        import base64
         ps = ("Add-Type -AssemblyName System.Speech;"
               "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
               "$v=$s.GetInstalledVoices()|Where-Object{"
@@ -179,8 +212,9 @@ def make_dpi_aware():
 def get_screen_and_taskbar():
     """(ekran_genisligi, ekran_yuksekligi, serit_yuksekligi, serit_ust_y) dondurur.
 
-    Serit yuksekligi = gorev cubugu yuksekligi; serit gorev cubugunun hemen
-    ustune oturur. Gorev cubugu bulunamazsa (gizli / yanda) 48px varsayilir.
+    Serit yuksekligi = gorev cubugu / Dock yuksekligi; serit onun hemen
+    ustune oturur. Olculemezse (gizli / yanda / arac yok) 48px varsayilir
+    ve serit ekranin en altina yerlesir.
     """
     fallback_h = 48
     if IS_WINDOWS:
@@ -204,10 +238,21 @@ def get_screen_and_taskbar():
             bottom = r.bottom if ok and 0 < r.bottom <= sh else sh
             top = bottom - h
         return sw, sh, h, top
-    # Windows disi (test icin): ekranin en alti
     tmp = tk.Tk()
     sw, sh = tmp.winfo_screenwidth(), tmp.winfo_screenheight()
     tmp.destroy()
+    if IS_MAC:
+        try:
+            # PyObjC varsa Dock yuksekligini tam olc
+            from AppKit import NSScreen
+            scr = NSScreen.mainScreen()
+            f, v = scr.frame(), scr.visibleFrame()
+            dock = int(v.origin.y - f.origin.y)  # Cocoa'da y asagidan yukari
+            if 10 <= dock <= sh // 3:
+                return sw, sh, dock, sh - 2 * dock  # Dock'un hemen ustu
+        except Exception:
+            pass
+    # Dock olculemedi / gizli / diger platform: ekranin en alti
     return sw, sh, fallback_h, sh - fallback_h
 
 
@@ -277,8 +322,9 @@ class MiyavKedi:
         self.s = strip_h / 48.0          # tum cizim 48px'lik tasarima gore olcekli
         self.gy = strip_h - 1            # zemin cizgisi (seridin alti)
 
+        bg = "systemTransparent" if IS_MAC else TRANS
         self.canvas = tk.Canvas(root, width=sw, height=strip_h,
-                                bg=TRANS, highlightthickness=0, bd=0)
+                                bg=bg, highlightthickness=0, bd=0)
         self.canvas.pack()
         self.sprite = load_sprite(strip_h)   # referans tutulmali (GC'ye karsi)
         self.sound = Sound()
@@ -1106,6 +1152,24 @@ SUVORK5CYII=
 """
 
 
+def make_mac_click_through(root):
+    """macOS + PyObjC: pencere tiklamalari tamamen gecirsin.
+
+    Basarili olursa serit alttaki pencereleri hic engellemez; ama kediye
+    de tiklanamaz — cikis Dock simgesine sag tiklayip Quit ile yapilir.
+    PyObjC yoksa False doner; kedi tiklanabilir kalir fakat seffaf serit
+    alanindaki tiklamalar alttaki pencerelere gecmez (Tk siniri)."""
+    try:
+        from AppKit import NSApp
+        root.update_idletasks()
+        root.update()
+        for w in NSApp.windows():
+            w.setIgnoresMouseEvents_(True)
+        return True
+    except Exception:
+        return False
+
+
 def main():
     make_dpi_aware()
     sw, _sh, strip_h, strip_top = get_screen_and_taskbar()
@@ -1114,16 +1178,26 @@ def main():
     root.title("Miyav Kedi")
     root.overrideredirect(True)              # cerceve yok
     root.attributes("-topmost", True)        # hep en ustte
-    try:
-        # TRANS rengindeki pikseller hem gorunmez hem tiklanamaz olur;
-        # yani serit, altindaki pencereleri engellemez. Sadece kedinin
-        # kendisi tiklanabilir (sol tik: miyav, sag tik: kapat).
-        root.attributes("-transparentcolor", TRANS)
-    except tk.TclError:
-        pass  # Windows disinda seffaflik desteklenmez
+    if IS_MAC:
+        try:
+            # macOS'ta gercek seffaflik: pencere + 'systemTransparent' zemin
+            root.attributes("-transparent", True)
+            root.config(bg="systemTransparent")
+        except tk.TclError:
+            pass
+    else:
+        try:
+            # TRANS rengindeki pikseller hem gorunmez hem tiklanamaz olur;
+            # yani serit, altindaki pencereleri engellemez. Sadece kedinin
+            # kendisi tiklanabilir (sol tik: konus, sag tik: kapat).
+            root.attributes("-transparentcolor", TRANS)
+        except tk.TclError:
+            pass  # diger platformlarda seffaflik desteklenmez
     root.geometry("%dx%d+0+%d" % (sw, strip_h, strip_top))
 
     app = MiyavKedi(root, sw, strip_h)
+    if IS_MAC:
+        make_mac_click_through(root)
     app.tick()
     root.mainloop()
 
