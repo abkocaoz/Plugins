@@ -209,12 +209,16 @@ def make_dpi_aware():
             pass
 
 
-def get_screen_and_taskbar():
+def get_screen_and_taskbar(root):
     """(ekran_genisligi, ekran_yuksekligi, serit_yuksekligi, serit_ust_y) dondurur.
 
     Serit yuksekligi = gorev cubugu / Dock yuksekligi; serit onun hemen
     ustune oturur. Olculemezse (gizli / yanda / arac yok) 48px varsayilir
     ve serit ekranin en altina yerlesir.
+
+    `root`: main() icinde olusturulan TEK Tk penceresi. (macOS'ta olcum
+    icin gecici bir Tk acip kapatmak cokmeye yol acabildiginden ayni
+    pencere kullanilir.)
     """
     fallback_h = 48
     if IS_WINDOWS:
@@ -238,9 +242,7 @@ def get_screen_and_taskbar():
             bottom = r.bottom if ok and 0 < r.bottom <= sh else sh
             top = bottom - h
         return sw, sh, h, top
-    tmp = tk.Tk()
-    sw, sh = tmp.winfo_screenwidth(), tmp.winfo_screenheight()
-    tmp.destroy()
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     if IS_MAC:
         try:
             # PyObjC varsa Dock yuksekligini tam olc
@@ -1171,16 +1173,22 @@ def make_mac_click_through(root):
 
 
 def main():
-    make_dpi_aware()
-    sw, _sh, strip_h, strip_top = get_screen_and_taskbar()
+    try:
+        # cokme olursa (ozellikle macOS/Tk uyumsuzluklari) iz birakir;
+        # pythonw altinda stderr olmayabilir, o yuzden korumali
+        import faulthandler
+        faulthandler.enable()
+    except Exception:
+        pass
 
-    root = tk.Tk()
+    make_dpi_aware()
+
+    root = tk.Tk()                           # surec boyunca TEK Tk penceresi
     root.title("Miyav Kedi")
-    root.overrideredirect(True)              # cerceve yok
-    root.attributes("-topmost", True)        # hep en ustte
     if IS_MAC:
         try:
-            # macOS'ta gercek seffaflik: pencere + 'systemTransparent' zemin
+            # macOS'ta gercek seffaflik: pencere haritalanmadan ONCE
+            # ayarlanmali; 'systemTransparent' zeminle birlikte kullanilir
             root.attributes("-transparent", True)
             root.config(bg="systemTransparent")
         except tk.TclError:
@@ -1193,6 +1201,10 @@ def main():
             root.attributes("-transparentcolor", TRANS)
         except tk.TclError:
             pass  # diger platformlarda seffaflik desteklenmez
+
+    sw, _sh, strip_h, strip_top = get_screen_and_taskbar(root)
+    root.overrideredirect(True)              # cerceve yok
+    root.attributes("-topmost", True)        # hep en ustte
     root.geometry("%dx%d+0+%d" % (sw, strip_h, strip_top))
 
     app = MiyavKedi(root, sw, strip_h)
