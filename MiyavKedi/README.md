@@ -5,12 +5,17 @@ yaşayan minik bir masaüstü kedisi:
 
 - Mouse imleciniz hareket ettikçe kedi, imlecin hizasına doğru **koşar**
   (zıplaya zıplaya).
-- İmleç durunca kedi de durur ve kısa bir gecikmeyle **"GTA Çalış" konuşma
-  balonu** çıkarır. Boş durdukça arada bir tekrar hatırlatır.
-- Kedi görseli, `.pyw` dosyasının yanındaki **`kedi.png`** dosyasından yüklenir
-  ve görev çubuğu yüksekliğine otomatik ölçeklenir. Dilerseniz bu PNG'yi
-  (şeffaf arka planlı) başka bir görselle değiştirebilirsiniz; dosya yoksa
-  program kendi çizdiği turuncu kediye geri döner.
+- İmleç durunca kedi de durur ve kısa bir gecikmeyle konuşma balonu çıkarır:
+  bazen **"Miyav!"**, bazen **"Mrrr..."**, arada da **"GTA Çalış"** der
+  (üst üste aynı şeyi söylemez). Boş durdukça arada bir tekrar konuşur.
+- **Sesli!** "Miyav!" ve "Mrrr..." için program kendi ürettiği sevimli
+  sentez sesleri çalar; **"GTA Çalış"** ise Windows'un yerleşik Türkçe
+  okuma sesiyle (TTS) yüksek sesle söylenir. (Türkçe ses kurulu değilse
+  varsayılan sistem sesi kullanılır.)
+- Kedi görseli kodun içine gömülüdür — `.pyw` dosyası **tek başına**
+  taşınsa bile kedi her yerde aynı görünür. Yanına şeffaf arka planlı bir
+  `kedi.png` koyarsanız onu tercih eder; yani görseli dilediğinizle
+  değiştirebilirsiniz.
 - Şeridin yüksekliği otomatik olarak görev çubuğunuzun yüksekliği kadar alınır
   ve kedi görev çubuğunun hemen üstünde koşar. (Görev çubuğu gizli ya da yan
   kenardaysa 48 piksel varsayılır.)
@@ -38,7 +43,7 @@ pythonw miyav_kedi.pyw
 | Eylem | Sonuç |
 | --- | --- |
 | İmleci hareket ettir | Kedi imlecin hizasına koşar |
-| İmleci sabit tut | Kedi durur, "GTA Çalış" der |
+| İmleci sabit tut | Kedi durur; "Miyav!", "Mrrr..." ya da "GTA Çalış" der (sesli) |
 | Kediye **sol tık** | Hemen konuşur |
 | Kediye **sağ tık** | Uygulama kapanır |
 
