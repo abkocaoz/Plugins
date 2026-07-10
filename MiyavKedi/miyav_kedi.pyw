@@ -4,17 +4,21 @@ Miyav Kedi
 ==========
 Ekranin en altinda, gorev cubugu (taskbar) yuksekliginde seffaf bir seritte
 yasayan minik bir kedi. Mouse imlecini yatayda takip eder; imlec durunca
-size doner ve "Miyav!" balonu cikarir.
+size doner ve "GTA Calis" balonu cikarir.
+
+Kedi gorseli: yandaki `kedi.png` dosyasindan yuklenir (seffaf PNG).
+Dosya bulunamazsa program kendi cizdigi turuncu kediye doner.
 
 Kullanim:
   - Calistir:  pythonw miyav_kedi.pyw   (veya dosyaya cift tikla)
-  - Sol tik (kedinin ustune):  hemen miyavlar
+  - Sol tik (kedinin ustune):  hemen konusur
   - Sag tik (kedinin ustune):  uygulamayi kapatir
 
 Gereksinim: Windows + Python 3.8+ (tkinter Python ile birlikte gelir).
 """
 
 import math
+import os
 import random
 import sys
 import time
@@ -36,7 +40,8 @@ BUBBLE_BG = "#ffffff"      # konusma balonu
 BUBBLE_EDGE = "#c9c2b8"
 BUBBLE_TEXT = "#3b3b3b"
 
-MEOWS = ["Miyav!", "Miyav!", "Miyav!", "Miyavvv!", "Mirrr~"]
+MEOWS = ["GTA Çalış"]
+SPRITE_FILE = "kedi.png"   # .pyw ile ayni klasorde durmali
 
 
 def make_dpi_aware():
@@ -88,6 +93,40 @@ def get_screen_and_taskbar():
     return sw, sh, fallback_h, sh - fallback_h
 
 
+def load_sprite(strip_h):
+    """kedi.png'yi yukleyip serit yuksekligine sigacak sekilde olcekler.
+
+    tkinter PhotoImage yalnizca tamsayi zoom/subsample bilir; bu yuzden
+    hedefe en yakin z/d oranini arar (or. 192px -> 48px icin 1/4).
+    Dosya yoksa None doner ve program cizilmis kediye geri duser.
+    """
+    # PyInstaller --onefile icinde calisirken dosyalar _MEIPASS'a acilir
+    base = getattr(sys, "_MEIPASS",
+                   os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(base, SPRITE_FILE)
+    try:
+        img = tk.PhotoImage(file=path)
+    except Exception:
+        return None
+    target = strip_h - 2
+    best = None
+    for z in range(1, 9):
+        for d in range(1, 97):
+            est = img.height() * z / d
+            if est > strip_h or est < target * 0.6:
+                continue
+            score = (abs(target - est), z * d)
+            if best is None or score < best[0]:
+                best = (score, z, d)
+    if best is None:
+        return None
+    _, z, d = best
+    scaled = img.zoom(z) if z > 1 else img
+    if d > 1:
+        scaled = scaled.subsample(d)
+    return scaled
+
+
 def rounded_rect(c, x1, y1, x2, y2, r, **kw):
     """Kosesi yuvarlatilmis dikdortgen (smooth polygon hilesi)."""
     pts = [x1 + r, y1, x2 - r, y1, x2, y1, x2, y1 + r,
@@ -112,6 +151,7 @@ class MiyavKedi:
         self.canvas = tk.Canvas(root, width=sw, height=strip_h,
                                 bg=TRANS, highlightthickness=0, bd=0)
         self.canvas.pack()
+        self.sprite = load_sprite(strip_h)   # referans tutulmali (GC'ye karsi)
         self.canvas.bind("<Button-1>", self.poke)
         self.canvas.bind("<Button-3>", self.quit)
         root.bind("<Escape>", self.quit)
@@ -214,12 +254,20 @@ class MiyavKedi:
     def redraw(self, now):
         c = self.canvas
         c.delete("all")
-        if self.idle:
+        if self.sprite is not None:
+            self.draw_sprite(c)
+        elif self.idle:
             self.draw_front(c, now)
         else:
             self.draw_side(c)
         if self.meow_start is not None:
             self.draw_bubble(c, now)
+
+    def draw_sprite(self, c):
+        """kedi.png ile cizim: yururken hoplar, dururken sabit durur."""
+        bob = abs(math.sin(self.phase)) * 2.5 * self.s if self.walking else 0.0
+        c.create_image(self.cat_x, self.gy + 1 - bob, anchor="s",
+                       image=self.sprite)
 
     def oval(self, c, x1, y1, x2, y2, **kw):
         return c.create_oval(min(x1, x2), min(y1, y2),
@@ -335,37 +383,42 @@ class MiyavKedi:
                           width=w(1), fill=WHISKER)
 
     def draw_bubble(self, c, now):
-        """'Miyav!' konusma balonu (serit yuksekligine sigacak sekilde yanda)."""
+        """Konusma balonu: metin olculur, balon kedinin yanina yerlestirilir."""
         s = self.s
         grow = min(1.0, (now - self.meow_start) / 0.15)
         side = 1 if self.cat_x < self.sw - 160 * s else -1
-
         fs = max(8, int(10 * s))
-        bx = self.cat_x + side * 44 * s
-        by = 12 * s + (1.0 - grow) * 8 * s
+        pad_x, pad_y = 7 * s, 3 * s
 
-        text_id = c.create_text(bx, by, text=self.meow_text,
+        # once metni olc (gecici konumda), sonra balonu konumlandir
+        text_id = c.create_text(-1000, -1000, text=self.meow_text,
                                 font=("Segoe UI", fs, "bold"),
                                 fill=BUBBLE_TEXT, anchor="center")
-        x1, y1, x2, y2 = c.bbox(text_id)
-        pad_x, pad_y = 7 * s, 3 * s
-        x1, y1, x2, y2 = x1 - pad_x, y1 - pad_y, x2 + pad_x, y2 + pad_y
+        tx1, ty1, tx2, ty2 = c.bbox(text_id)
+        half_w = (tx2 - tx1) / 2 + pad_x
+        half_h = (ty2 - ty1) / 2 + pad_y
 
-        # balon ekran disina tasmasin
-        shift = 0
-        if x1 < 2:
-            shift = 2 - x1
-        elif x2 > self.sw - 2:
-            shift = (self.sw - 2) - x2
-        if shift:
-            x1 += shift
-            x2 += shift
-            c.move(text_id, shift, 0)
+        # balonun kediye bakan kenari, kedinin hemen yaninda dursun
+        if self.sprite is not None:
+            edge = self.sprite.width() / 2 + 6 * s
+        else:
+            edge = 22 * s
+        bx = self.cat_x + side * (edge + half_w)
+        bx = min(max(bx, half_w + 2), self.sw - half_w - 2)  # ekrana sigdir
+        by = half_h + 1 + (1.0 - grow) * 8 * s
+        c.coords(text_id, bx, by)
+        x1, y1, x2, y2 = bx - half_w, by - half_h, bx + half_w, by + half_h
 
         # ibre (balondan kedinin kulagina dogru)
-        base_x = bx + shift - side * (x2 - x1) * 0.28
+        if self.sprite is not None:
+            tip_x = self.cat_x + side * self.sprite.width() * 0.25
+            tip_y = self.gy - self.sprite.height() * 0.88
+        else:
+            tip_x = self.cat_x + side * 8 * s
+            tip_y = self.gy - 34 * s
+        base_x = bx - side * half_w * 0.5
         c.create_polygon(base_x - 4 * s, y2 - 2, base_x + 4 * s, y2 - 2,
-                         self.cat_x + side * 8 * s, self.gy - 34 * s,
+                         tip_x, tip_y,
                          fill=BUBBLE_BG, outline=BUBBLE_EDGE, width=max(1, s))
         rounded_rect(c, x1, y1, x2, y2, 8 * s,
                      fill=BUBBLE_BG, outline=BUBBLE_EDGE, width=max(1, s))

@@ -3,13 +3,16 @@
 Ekranın en altında, **görev çubuğu (taskbar) yüksekliğinde** şeffaf bir şeritte
 yaşayan minik bir masaüstü kedisi:
 
-- Mouse imleciniz hareket ettikçe kedi, imlecin hizasına doğru **yürür/koşar**
-  (gittiği yöne döner, bacakları ve kuyruğu sallanır).
-- İmleç durunca kedi de durur, **size döner** ve kısa bir gecikmeyle
-  **"Miyav!" konuşma balonu** çıkarır. Boş durdukça arada bir tekrar miyavlar,
-  göz kırpar.
+- Mouse imleciniz hareket ettikçe kedi, imlecin hizasına doğru **koşar**
+  (zıplaya zıplaya).
+- İmleç durunca kedi de durur ve kısa bir gecikmeyle **"GTA Çalış" konuşma
+  balonu** çıkarır. Boş durdukça arada bir tekrar hatırlatır.
+- Kedi görseli, `.pyw` dosyasının yanındaki **`kedi.png`** dosyasından yüklenir
+  ve görev çubuğu yüksekliğine otomatik ölçeklenir. Dilerseniz bu PNG'yi
+  (şeffaf arka planlı) başka bir görselle değiştirebilirsiniz; dosya yoksa
+  program kendi çizdiği turuncu kediye geri döner.
 - Şeridin yüksekliği otomatik olarak görev çubuğunuzun yüksekliği kadar alınır
-  ve kedi görev çubuğunun hemen üstünde yürür. (Görev çubuğu gizli ya da yan
+  ve kedi görev çubuğunun hemen üstünde koşar. (Görev çubuğu gizli ya da yan
   kenardaysa 48 piksel varsayılır.)
 - Pencere çerçevesizdir, her zaman en üsttedir ve **şeffaf kısımları tıklamayı
   engellemez** — yani altındaki pencereleri kullanmaya devam edebilirsiniz.
@@ -34,9 +37,9 @@ pythonw miyav_kedi.pyw
 
 | Eylem | Sonuç |
 | --- | --- |
-| İmleci hareket ettir | Kedi imlecin hizasına yürür |
-| İmleci sabit tut | Kedi size döner, "Miyav!" der |
-| Kediye **sol tık** | Hemen miyavlar |
+| İmleci hareket ettir | Kedi imlecin hizasına koşar |
+| İmleci sabit tut | Kedi durur, "GTA Çalış" der |
+| Kediye **sol tık** | Hemen konuşur |
 | Kediye **sağ tık** | Uygulama kapanır |
 
 ## Windows açılışında otomatik başlatma (isteğe bağlı)
@@ -48,8 +51,13 @@ pythonw miyav_kedi.pyw
 
 ```bat
 pip install pyinstaller
-pyinstaller --onefile --noconsole miyav_kedi.pyw
+pyinstaller --onefile --noconsole --add-data "kedi.png;." miyav_kedi.pyw
 ```
 
 Oluşan `dist\miyav_kedi.exe` dosyası Python kurulu olmayan bilgisayarlarda da
 çalışır.
+
+## Görsel kaynağı
+
+`kedi.png`, [Microsoft Fluent Emoji](https://github.com/microsoft/fluentui-emoji)
+setindeki 3D kedi görselinden üretilmiştir (MIT lisansı).
