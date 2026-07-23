@@ -54,6 +54,7 @@ MAX_CONDITIONS = 10
 # (kod, ekranda gösterilen etiket) — kod .json/.dat/DXL tarafında kullanılır.
 OPERATORS = [
     ("contains",     "içerir"),
+    ("not_contains", "içermez"),
     ("equals",       "eşittir"),
     ("not_equals",   "eşit değildir"),
     ("is_empty",     "boştur"),
@@ -355,6 +356,7 @@ string baseKey(string k) {
 
 bool isKnownOp(string op) {
     if (op == "contains")     return true
+    if (op == "not_contains") return true
     if (op == "equals")       return true
     if (op == "not_equals")   return true
     if (op == "is_empty")     return true
@@ -494,6 +496,7 @@ string validateRecord(Module m, int i) {
 // contains: buyuk/kucuk harf duyarsiz (ucuncu parametre false).
 Filter buildCondition(string attrName, string op, string val) {
     if (op == "contains")     return contains(attribute attrName, val, false)
+    if (op == "not_contains") return (!contains(attribute attrName, val, false))
     if (op == "equals")       return (attribute attrName == val)
     if (op == "not_equals")   return (attribute attrName != val)
     if (op == "is_empty")     return (attribute attrName == "")

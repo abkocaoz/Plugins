@@ -64,8 +64,8 @@ python doors_filter_editor.py
    son kullanılan klasör hatırlanır ve sonraki açılışta kendiliğinden açılır).
 2. **+ Yeni Filtre** veya **Hazır Şablonlar** ile başlayın. Formda cümle kurar
    gibi ilerlersiniz: attribute (yaygın DOORS attribute'ları öneri listesinde),
-   Türkçe operatör (içerir / eşittir / eşit değildir / boştur / büyüktür /
-   küçüktür) ve değer. **+ Koşul ekle (VE / VEYA)** bağlantısıyla istediğiniz
+   Türkçe operatör (içerir / içermez / eşittir / eşit değildir / boştur /
+   büyüktür / küçüktür) ve değer. **+ Koşul ekle (VE / VEYA)** bağlantısıyla istediğiniz
    kadar (en çok 10) koşul ekler, her koşulun başındaki açılır kutudan VE/VEYA
    bağlacını seçer, `×` ile koşulu kaldırırsınız. Üçten fazla koşulda birleşim
    **soldan sağa** uygulanır (parantez gruplaması yoktur) ve form bunu bir
@@ -136,9 +136,10 @@ açılır, "Yeniden Yükle" ile sonradan yüklenebilir.
 
 DXL Reference Manual'da belgeli olup yaygın kullanımla kesinliğinden emin
 olduğum çağrılar: `pragma runLim` · `Stream read(string)` / `>>` (satır okuma) /
-`end of` / `close` · `Filter contains(attribute string, string, bool)` ·
-attribute karşılaştırma filtreleri `==` `!=` `<` `>` · filtre birleştirme
-`&&` `||` · `set(Module, Filter)` · `filtering on/off` · `refresh(Module)` ·
+`end of` / `close` · `Filter contains(attribute string, string, bool)` ve
+olumsuzu `!contains(...)` (içermez) · attribute karşılaştırma filtreleri
+`==` `!=` `<` `>` · filtre birleştirme `&&` `||` · Filter olumsuzlama `!` ·
+`set(Module, Filter)` · `filtering on/off` · `refresh(Module)` ·
 `AttrDef find(Module, string)` · `null` denetimleri · DB/DBE: `create`, `label`,
 `list`, `field`, `button`, `realize`, `show`, `hide`, `insert(DBE,int,string)`,
 `delete(DBE,int)`, `set(DBE,…)`, `get(DBE)` · `ack` · `Module current` ·
