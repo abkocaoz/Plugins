@@ -7,15 +7,16 @@ from datetime import datetime
 import pandas as pd
 from openpyxl.styles import Alignment, Font, PatternFill
 
+# Arayüzle aynı durum tonları (ui.TONES): kritik / uyarı / nötr, iyi
 SEV_FILL = {
-    "Yüksek": PatternFill("solid", fgColor="F8CBAD"),
-    "Orta": PatternFill("solid", fgColor="FFE699"),
-    "Düşük": PatternFill("solid", fgColor="DDEBF7"),
+    "Yüksek": PatternFill("solid", fgColor="F8E1E1"),
+    "Orta": PatternFill("solid", fgColor="FDF1D6"),
+    "Düşük": PatternFill("solid", fgColor="F0EFEC"),
 }
 MATRIX_FILL = {
-    "✓": PatternFill("solid", fgColor="C6EFCE"),
-    "≠": PatternFill("solid", fgColor="F8CBAD"),
-    "–": PatternFill("solid", fgColor="EDEDED"),
+    "✓": PatternFill("solid", fgColor="E5F4E5"),
+    "≠": PatternFill("solid", fgColor="F8E1E1"),
+    "–": PatternFill("solid", fgColor="F0EFEC"),
 }
 
 
@@ -105,8 +106,8 @@ def single_table(analysis: dict) -> pd.DataFrame:
 
 def _format(ws, df: pd.DataFrame, wide_cols=()):
     for cell in ws[1]:
-        cell.font = Font(bold=True, color="FFFFFF")
-        cell.fill = PatternFill("solid", fgColor="305496")
+        cell.font = Font(bold=True, color="52514E")
+        cell.fill = PatternFill("solid", fgColor="F3F2EE")
         cell.alignment = Alignment(wrap_text=True, vertical="center")
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = ws.dimensions

@@ -21,6 +21,8 @@ from core.project import (
     STATUSES, list_projects, load_project, log, new_project, safe_name, save_project,
 )
 from core.verify import CHANGED, FIXED, GONE, NEW, STILL, compare_to_baseline, make_baseline
+import ui
+from ui import esc, html_table
 
 st.set_page_config(page_title="Gereksinim Karşılaştırma", page_icon="📑", layout="wide")
 
@@ -33,8 +35,24 @@ PAGES = [
     "6 · Doğrulama",
     "7 · Ayarlar",
 ]
-SEV_COLOR = {"Yüksek": "#f8cbad", "Orta": "#ffe699", "Düşük": "#ddebf7"}
-CELL_COLOR = {"✓": "#c6efce", "≠": "#f8cbad", "–": "#ededed"}
+PAGE_INFO = {
+    PAGES[0]: ("Adım 1", "Veri Yükleme",
+               "DOORS'tan aldığınız CSV veya Excel dosyalarını yükleyin. Set adı dosya adından alınır; "
+               "aynı adla tekrar yüklenen dosya eski setin yerine geçer."),
+    PAGES[1]: ("Adım 2", "Ortak Gereksinimler",
+               "Setlerde ortak olan gereksinimler ve hangi sette farklı oldukları. "
+               "Bir satır seçerek grubun detayına geçin."),
+    PAGES[2]: ("Adım 3", "Grup Detayı",
+               "Bir ortak gereksinimin tüm setlerdeki hali yan yana. Farkları inceleyip karar verin."),
+    PAGES[3]: ("Adım 4", "Fark Listesi",
+               "DOORS'ta düzeltilecek işlerin listesi. Durum ve not girin, Excel'e aktarın."),
+    PAGES[4]: ("Adım 5", "Eşleşme Önerileri",
+               "Otomatik eşleşmeye girmeyen ama benzeyen gereksinimleri elle birleştirin ya da ayırın."),
+    PAGES[5]: ("Adım 6", "Doğrulama",
+               "Temel çizgi oluşturun, DOORS'ta düzeltin, güncel CSV'leri yükleyin ve neyin düzeldiğini görün."),
+    PAGES[6]: ("Yapılandırma", "Ayarlar", "Eşleştirme eşikleri ve yerel LLM (Ollama) bağlantısı."),
+}
+VERIFY_TONE = {FIXED: "good", STILL: "warning", CHANGED: "serious", NEW: "critical", GONE: "neutral"}
 
 ss = st.session_state
 ss.setdefault("project", None)
@@ -85,52 +103,10 @@ def html_diff(ref: str, val: str) -> str:
         if op == "equal":
             out.append(a)
         if op in ("delete", "replace") and a:
-            out.append(f'<del style="background:#f8cbad;color:#000;">{a}</del>')
+            out.append(f"<del>{a}</del>")
         if op in ("insert", "replace") and b:
-            out.append(f'<ins style="background:#c6efce;color:#000;text-decoration:none;">{b}</ins>')
-    return f'<div style="white-space:pre-wrap;line-height:1.6;">{"".join(out)}</div>'
-
-
-_TABLE_CSS = """<style>
-.gk-wrap{max-height:%dpx;overflow:auto;border:1px solid #d0d7de;border-radius:6px;}
-.gk-t{border-collapse:separate;border-spacing:0;font-size:13px;color:#1f2328;width:max-content;}
-.gk-t th{position:sticky;top:0;z-index:2;background:#305496;color:#fff;text-align:left;
-  padding:6px 8px;white-space:nowrap;border-right:1px solid #4a6db0;}
-.gk-t td{padding:6px 8px;vertical-align:top;white-space:pre-wrap;word-break:break-word;
-  min-width:90px;max-width:%dpx;border-bottom:1px solid #e5e8eb;border-right:1px solid #eef0f2;background:#fff;}
-.gk-t td.gk-k,.gk-t th.gk-k{position:sticky;left:0;z-index:1;font-weight:600;background:#f3f5f8;
-  min-width:110px;white-space:nowrap;}
-.gk-t th.gk-k{z-index:3;background:#24406f;}
-.gk-t tr.gk-alt td{background:#f7f9fc;}
-.gk-t tr.gk-alt td.gk-k{background:#e9eef6;}
-.gk-t td.gk-d{background:#f8cbad !important;}
-.gk-t td.gk-r{background:#fff9e0 !important;}
-.gk-t td.gk-m{background:#ededed !important;color:#777;}
-.gk-t small.gk-n{display:block;margin-top:4px;color:#9c2b00;font-weight:600;}
-</style>"""
-
-
-def html_table(header: list[str], rows: list[tuple[str, list[tuple[str, str]]]], sticky_cols: int = 1,
-               max_height: int = 620, cell_width: int = 420) -> str:
-    """Kaydırılabilir, metni satır kaydıran HTML tablo.
-
-    rows: [(satır_sınıfı, [(hücre_html, hücre_sınıfı), ...]), ...] — hücre_html önceden kaçışlanmış olmalı.
-    İlk `sticky_cols` sütun yatay kaydırmada sabit kalır (yalnızca ilki yapışkan konumlandırılır).
-    """
-    th = "".join(f'<th class="{"gk-k" if i < sticky_cols else ""}">{h}</th>' for i, h in enumerate(header))
-    body = []
-    for rcls, cells in rows:
-        tds = "".join(
-            f'<td class="{"gk-k " if i < sticky_cols else ""}{cls}">{val}</td>' for i, (val, cls) in enumerate(cells)
-        )
-        body.append(f'<tr class="{rcls}">{tds}</tr>')
-    return (_TABLE_CSS % (max_height, cell_width)
-            + f'<div class="gk-wrap"><table class="gk-t"><thead><tr>{th}</tr></thead>'
-            + f'<tbody>{"".join(body)}</tbody></table></div>')
-
-
-def esc(v) -> str:
-    return html.escape("" if v is None else str(v))
+            out.append(f"<ins>{b}</ins>")
+    return f'<div class="gk-diff">{"".join(out)}</div>'
 
 
 def diff_index(diffs: list[dict]) -> dict:
@@ -225,8 +201,19 @@ def explain_many(diffs: list[dict]):
 
 
 def style_sev(df: pd.DataFrame, col="Önem"):
-    return df.style.map(lambda v: f"background-color:{SEV_COLOR.get(v, '')};color:#000" if v in SEV_COLOR else "",
-                        subset=[col])
+    return df.style.map(ui.sev_cell_css, subset=[col])
+
+
+def with_sev_icon(df: pd.DataFrame, col="Önem") -> pd.DataFrame:
+    """Düzenlenebilir tablolarda önem, renge ek olarak simgeyle de gösterilir."""
+    df = df.copy()
+    df[col] = df[col].map(lambda v: f"{ui.SEVERITY_STYLE[v][1]} {v}" if v in ui.SEVERITY_STYLE else v)
+    return df
+
+
+def header(page_key: str):
+    step, title, sub = PAGE_INFO[page_key]
+    ui.page_header(step, title, sub)
 
 
 def open_project(p: dict, save: bool = False):
@@ -245,8 +232,12 @@ if ss.project is None and st.query_params.get("proje") in list_projects():
     ss.analysis_sig = None
 
 # --------------------------------------------------------------------------- kenar çubuğu
+ui.inject_css()
+
 with st.sidebar:
-    st.title("📑 Gereksinim Karşılaştırma")
+    st.markdown('<div class="gk-brand"><div class="gk-brand-mark">GK</div><div>'
+                '<div class="gk-brand-t">Gereksinim Karşılaştırma</div>'
+                '<div class="gk-brand-s">DOORS set analizi</div></div></div>', unsafe_allow_html=True)
     projects = list_projects()
     with st.expander("Proje", expanded=ss.project is None):
         if projects:
@@ -261,26 +252,35 @@ with st.sidebar:
                 open_project(new_project(new_name.strip()), save=True)
     if ss.project:
         p = ss.project
-        st.success(f"**Proje:** {p['name']}")
-        st.caption(f"{len(p['sets'])} set · son kayıt {p['updated'].replace('T', ' ')}")
-        if llm_ready():
-            st.caption(f"🤖 Ollama: {p['llm']['chat_model']}")
-        else:
-            st.caption("🤖 LLM kapalı (Ayarlar'dan açılabilir)")
+        llm_chip = (ui.chip(f"LLM · {p['llm']['chat_model']}", "good") if llm_ready()
+                    else ui.chip("LLM kapalı", "neutral"))
+        base_chip = ui.chip("Temel çizgi var", "info") if p.get("baseline") else ""
+        st.markdown(
+            f'<div class="gk-proj"><div class="gk-proj-l">Açık proje</div>'
+            f'<div class="gk-proj-n">{esc(p["name"])}</div>'
+            f'<div class="gk-proj-m">{len(p["sets"])} set · {esc(p["updated"].replace("T", " ")[:16])}</div>'
+            f'<div class="gk-proj-m" style="margin-top:6px">{llm_chip}{base_chip}</div></div>',
+            unsafe_allow_html=True)
+        st.markdown('<div class="gk-navlabel">Akış</div>', unsafe_allow_html=True)
     if "nav_target" in ss:
         ss["nav"] = ss.pop("nav_target")
-    page = st.radio("Sayfa", PAGES, key="nav", label_visibility="collapsed")
+    page = st.radio("Sayfa", PAGES, key="nav", label_visibility="collapsed",
+                    disabled=ss.project is None)
 
 if not ss.project:
-    st.header("Hoş geldiniz 👋")
-    st.markdown(
-        "Soldaki **Proje** bölümünden yeni bir proje oluşturun ya da mevcut bir projeyi açın.\n\n"
-        "**Akış:**\n"
-        "1. DOORS'tan aldığınız CSV/Excel dosyalarını yükleyin.\n"
-        "2. Ortak gereksinimleri ve farkları inceleyin, her fark için karar verin.\n"
-        "3. Fark listesini Excel'e aktarıp DOORS'ta düzeltin.\n"
-        "4. **Doğrulama** sayfasında temel çizgi oluşturun, düzeltilmiş CSV'leri yükleyin ve kontrol edin."
-    )
+    ui.page_header("Başlangıç", "Hoş geldiniz",
+                   "Soldaki <b>Proje</b> bölümünden yeni bir proje oluşturun ya da mevcut bir projeyi açın. "
+                   "Tüm veriler bu bilgisayarda kalır.")
+    steps = [
+        ("Yükle", "DOORS'tan aldığınız 17 CSV/Excel dosyasını yükleyin."),
+        ("İncele", "Ortak gereksinimleri ve setler arasındaki farkları yan yana görün."),
+        ("Karar ver", "Her fark için Düzeltilecek / Kasıtlı fark / Tamam seçin, Excel'e aktarın."),
+        ("Doğrula", "DOORS'ta düzeltip CSV'leri yeniden yükleyin; neyin düzeldiğini görün."),
+    ]
+    st.markdown('<div class="gk-steps">' + "".join(
+        f'<div class="gk-card"><div class="gk-step-n">{i}</div><div class="gk-step-t">{esc(t)}</div>'
+        f'<div class="gk-step-d">{esc(d)}</div></div>' for i, (t, d) in enumerate(steps, 1)) + "</div>",
+        unsafe_allow_html=True)
     st.stop()
 
 P = ss.project
@@ -295,12 +295,8 @@ def need_analysis():
 
 # --------------------------------------------------------------------------- 1. veri yükleme
 if page == PAGES[0]:
-    st.header("1 · Veri Yükleme")
-    st.markdown(
-        "DOORS'tan aldığınız **CSV** (veya Excel) dosyalarını seçin. Set adı dosya adından alınır; "
-        "aynı adla tekrar yüklenen dosya **eski setin yerine geçer**.\n\n"
-        "Sütunlar **sırayla** okunur: `ID · Source · Metin · Attribute · diğer öznitelikler…`"
-    )
+    header(PAGES[0])
+    st.caption("Sütunlar sırayla okunur: ID · Source · Metin · Attribute · diğer öznitelikler…")
     files = st.file_uploader("Dosyalar", type=["csv", "xlsx", "xls"], accept_multiple_files=True,
                              key=f"up_{len(P['history'])}")
     if st.button("📥 Yükle / Güncelle", type="primary", disabled=not files):
@@ -361,16 +357,21 @@ if page == PAGES[0]:
 # --------------------------------------------------------------------------- 2. ortak gereksinimler
 elif page == PAGES[1]:
     need_analysis()
-    st.header("2 · Ortak Gereksinimler")
+    header(PAGES[1])
     common = [c for c in A["clusters"] if c["common"]]
     diffs = A["diffs"]
     n_sets = len(A["set_names"])
-    m = st.columns(5)
-    m[0].metric("Set", n_sets)
-    m[1].metric("Ortak grup", len(common))
-    m[2].metric("Farklı olan grup", sum(1 for c in common if c["diff_count"]))
-    m[3].metric("Yüksek önemli fark", sum(1 for d in diffs if d["onem"] == "Yüksek"))
-    m[4].metric("Tek sette kalan", sum(len(c["members"]) for c in A["clusters"] if not c["common"]))
+    n_diff_groups = sum(1 for c in common if c["diff_count"])
+    ui.stat_tiles([
+        {"label": "Set", "value": n_sets},
+        {"label": "Ortak gereksinim grubu", "value": len(common)},
+        {"label": "Farkı olan grup", "value": n_diff_groups,
+         "note": f"%{round(100 * n_diff_groups / len(common)) if common else 0} / ortak grup"},
+        {"label": "Yüksek önemli fark", "value": sum(1 for d in diffs if d["onem"] == "Yüksek"), "tone": "critical"},
+        {"label": "Orta önemli fark", "value": sum(1 for d in diffs if d["onem"] == "Orta"), "tone": "warning"},
+        {"label": "Tek sette kalan", "value": sum(len(c["members"]) for c in A["clusters"] if not c["common"]),
+         "note": "Eşleşme Önerileri'ne bakın"},
+    ])
 
     f1, f2, f3, f4 = st.columns([1, 1, 1.4, 1.4])
     only_diff = f1.toggle("Yalnızca farklı olanlar", value=True)
@@ -421,13 +422,14 @@ elif page == PAGES[1]:
         n_pages = max(1, -(-len(rows) // per_page))
         pg = st.number_input(f"Sayfa (toplam {n_pages})", 1, n_pages, 1, key=f"p2_page_{n_pages}") if n_pages > 1 else 1
         page_rows = rows[(pg - 1) * per_page: pg * per_page]
-        legend = ("🟥 bu sütunda referanstan farklı set(ler) var (≠ altında yazılı)" if list_mode.startswith("Grup")
-                  else "🟥 referanstan farklı · ⬜ bu sette yok")
-        st.caption(f"{len(rows)} grup · {legend} · "
-                   "Sütunları üstteki kutudan seçebilir, tabloyu yatay/dikey kaydırabilirsiniz.")
+        if list_mode.startswith("Grup"):
+            ui.legend([("critical", "≠", "bu sütunda referanstan farklı set(ler) var — altında yazılı")])
+        else:
+            ui.legend([("critical", "≠", "referanstan farklı"), ("neutral", "–", "bu sette yok")])
+        st.caption(f"{len(rows)} grup · tablo yatay/dikey kaydırılabilir, ilk sütun sabit kalır.")
         out_rows = []
         if list_mode.startswith("Grup"):
-            header = ["Grup", "Kapsam"] + [esc(f) for f in chosen]
+            cols_h = ["Grup", "Kapsam"] + [esc(f) for f in chosen]
             for n, no in enumerate(page_rows):
                 c = by_no[no]
                 fd = dix.get(c["cid"], {})
@@ -438,26 +440,25 @@ elif page == PAGES[1]:
                     if bad:
                         v += f'<small class="gk-n">≠ {esc(", ".join(bad))}</small>'
                     cells.append((v, "gk-d" if bad else ""))
-                out_rows.append(("gk-alt" if n % 2 else "", cells))
-            st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
+                out_rows.append(("", cells))
+            st.markdown(html_table(cols_h, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
         else:
-            header = ["Grup", "Set", "Req ID"] + [esc(f) for f in chosen]
+            cols_h = ["Grup", "Set", "Req ID"] + [esc(f) for f in chosen]
             items = A["items"]
             for n, no in enumerate(page_rows):
                 c = by_no[no]
                 fd = dix.get(c["cid"], {})
-                for i in c["members"]:
+                for j, i in enumerate(c["members"]):
                     it = items[i]
                     cells = [(f"#{no}", ""), (esc(it["set"]), ""), (esc(it["id"]), "")]
                     for f in chosen:
                         v = spec_by[f]["get"](it)
                         cells.append((esc(v), "gk-d" if it["set"] in fd.get(f, []) else ""))
-                    out_rows.append(("gk-alt" if n % 2 else "", cells))
+                    out_rows.append(("gk-grp" if j == 0 and n else "", cells))
                 for s in c["missing"]:
                     empty = [("bu sette yok", "gk-m")] + [("", "gk-m")] * (len(chosen) - 1) if chosen else []
-                    out_rows.append(("gk-alt" if n % 2 else "",
-                                     [(f"#{no}", ""), (esc(s), "gk-m"), ("—", "gk-m")] + empty))
-            st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
+                    out_rows.append(("", [(f"#{no}", ""), (esc(s), "gk-m"), ("—", "gk-m")] + empty))
+            st.markdown(html_table(cols_h, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
         if page_rows:
             g1, g2 = st.columns([5, 1])
             pick = g1.selectbox("Detayına gitmek istediğiniz grup", page_rows,
@@ -467,14 +468,15 @@ elif page == PAGES[1]:
                 goto(PAGES[2], detail_cid=by_no[pick]["cid"])
         st.stop()
 
-    st.caption(f"{len(view)} grup gösteriliyor · ✓ referansla aynı · ≠ farklı · – bu sette yok. "
-               "Detay için bir satır seçin.")
+    ui.legend([("good", "✓", "referansla aynı"), ("critical", "≠", "farklı"), ("neutral", "–", "bu sette yok")])
+    st.caption(f"{len(view)} grup gösteriliyor · detay için bir satır seçin.")
     if not view.empty:
-        styled = view.style.map(
-            lambda v: f"background-color:{CELL_COLOR[v]};color:#000;text-align:center" if v in CELL_COLOR else "",
-            subset=A["set_names"],
-        ).map(lambda v: f"background-color:{SEV_COLOR.get(v, '')};color:#000" if v in SEV_COLOR else "",
-              subset=["En yüksek önem"])
+        view = view.copy()
+        view["En yüksek önem"] = view["En yüksek önem"].map(
+            lambda v: f"{ui.SEVERITY_STYLE[v][1]} {v}" if v in ui.SEVERITY_STYLE else v)
+        styled = view.style.map(ui.matrix_cell_css, subset=A["set_names"]).map(
+            lambda v: ui.sev_cell_css(v.split(" ", 1)[-1]) if isinstance(v, str) else "",
+            subset=["En yüksek önem"])
         ev = st.dataframe(styled, hide_index=True, on_select="rerun", selection_mode="single-row",
                           height=min(600, 38 + 35 * len(view)),
                           column_config={"Başlık / Metin": st.column_config.TextColumn(width="large")})
@@ -486,7 +488,7 @@ elif page == PAGES[1]:
 # --------------------------------------------------------------------------- 3. grup detayı
 elif page == PAGES[2]:
     need_analysis()
-    st.header("3 · Grup Detayı")
+    header(PAGES[2])
     common = [c for c in A["clusters"] if c["common"]]
     if not common:
         st.info("Ortak gereksinim grubu bulunamadı.")
@@ -510,19 +512,25 @@ elif page == PAGES[2]:
     members = [items[i] for i in c["members"]]
     cdiffs = [d for d in A["diffs"] if d["grup"] == cid]
 
-    st.markdown(f"**Kapsam:** {c['coverage']}/{len(A['set_names'])} set"
-                + (f" · **Eksik olduğu setler:** {', '.join(c['missing'])}" if c["missing"] else ""))
     ref_title = c["refs"].get("Başlık", {}).get("value", "")
     ref_body = c["refs"].get("Gövde", {}).get("value", "")
-    with st.container(border=True):
-        tie = any(r["tie"] for r in c["refs"].values())
-        src = f"ana set ({P['settings']['master_set']})" if P["settings"].get("master_set") in c["sets"] \
-            else "çoğunluk"
-        st.markdown(f"**Referans metin** <small>({src}{' · ⚠️ bazı alanlarda eşit oy' if tie else ''})</small>",
-                    unsafe_allow_html=True)
-        if ref_title:
-            st.markdown(f"**{html.escape(ref_title)}**")
-        st.write(ref_body)
+    tie = any(r["tie"] for r in c["refs"].values())
+    src = f"ana set · {P['settings']['master_set']}" if P["settings"].get("master_set") in c["sets"] else "çoğunluk"
+    chips = [ui.chip(f"{c['coverage']}/{len(A['set_names'])} sette var", "info")]
+    if c["max_sev"]:
+        chips.append(ui.sev_chip(c["max_sev"]))
+        chips.append(ui.chip(f"{len(c['diff_sets'])} sette fark", "critical", "≠"))
+    else:
+        chips.append(ui.chip("Fark yok", "good", "✓"))
+    if c["missing"]:
+        chips.append(ui.chip("Eksik: " + ", ".join(c["missing"]), "neutral", "–"))
+    if tie:
+        chips.append(ui.chip("Bazı alanlarda eşit oy", "warning", "!"))
+    st.markdown(
+        f'<div class="gk-card"><div class="gk-card-h">{"".join(chips)}</div>'
+        f'<div class="gk-ref-l">Referans metin · {esc(src)}</div>'
+        + (f'<div class="gk-ref-t">{esc(ref_title)}</div>' if ref_title else "")
+        + f'<div class="gk-ref-b">{esc(ref_body)}</div></div>', unsafe_allow_html=True)
 
     # Setlere göre tablo (farklı hücreler renkli)
     st.subheader("Setlerdeki haller")
@@ -537,8 +545,8 @@ elif page == PAGES[2]:
     shown = [s for s in specs if not only_diff_f or s["name"] in diff_fields]
 
     if layout.startswith("Yan yana"):
-        header = ["Sütun", "Referans"] + [f"{esc(it['set'])}<br><small>{esc(it['id'])}</small>" for it in members]
-        header += [f"{esc(s)}<br><small>yok</small>" for s in c["missing"]]
+        cols_h = ["Sütun", "Referans"] + [f"{esc(it['set'])}<br><small>{esc(it['id'])}</small>" for it in members]
+        cols_h += [f"{esc(s)}<br><small>yok</small>" for s in c["missing"]]
         out_rows = []
         for n, spec in enumerate(shown):
             ref = c["refs"].get(spec["name"], {})
@@ -548,35 +556,39 @@ elif page == PAGES[2]:
             cells += [(esc(spec["get"](it)), "gk-d" if (it["set"], spec["name"]) in diff_cells else "")
                       for it in members]
             cells += [("", "gk-m")] * len(c["missing"])
-            out_rows.append(("gk-alt" if n % 2 else "", cells))
-        st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
-        st.caption("🟨 Referans (ana set ya da çoğunluk) · 🟥 referanstan farklı · ⬜ bu sette yok. "
-                   "Tablo yatay kaydırılabilir; ilk sütun sabit kalır.")
+            out_rows.append(("", cells))
+        ui.legend([("info", "R", "referans (ana set ya da çoğunluk)"), ("critical", "≠", "referanstan farklı"),
+                   ("neutral", "–", "bu sette yok")])
+        st.markdown(html_table(cols_h, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
     else:
-        header = ["Set", "Req ID", "Ekipman"] + [esc(s["name"]) for s in shown]
+        cols_h = ["Set", "Req ID", "Ekipman"] + [esc(s["name"]) for s in shown]
         out_rows = []
         for n, it in enumerate(members):
             cells = [(esc(it["set"]), ""), (esc(it["id"]), ""), (esc(it["equipment"]), "")]
             cells += [(esc(s["get"](it)), "gk-d" if (it["set"], s["name"]) in diff_cells else "") for s in shown]
-            out_rows.append(("gk-alt" if n % 2 else "", cells))
-        st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
+            out_rows.append(("", cells))
+        st.markdown(html_table(cols_h, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
 
     # Metin farkları
     text_diffs = [d for d in cdiffs if d["alan"] in ("Başlık", "Gövde")]
     if text_diffs:
         st.subheader("Metin farkları")
-        st.caption("🟥 referansta olup bu sette olmayan · 🟩 bu sette fazladan/farklı olan")
+        ui.legend([("critical", "−", "referansta olup bu sette olmayan"),
+                   ("good", "+", "bu sette fazladan / farklı olan")])
         for d in text_diffs:
-            with st.container(border=True):
-                st.markdown(f"**{d['set']} · {d['id']} · {d['alan']}** — "
-                            f"<span style='background:{SEV_COLOR[d['onem']]};color:#000;padding:0 6px;"
-                            f"border-radius:4px'>{d['onem']}</span> {html.escape(d['etiketler'])}",
-                            unsafe_allow_html=True)
-                st.markdown(html_diff(d["referans"], d["deger"]), unsafe_allow_html=True)
-                note = P["llm_notes"].get(d["key"])
-                if note:
-                    st.info(f"🤖 **{note['kategori']}** ({note['onem']}) — {note['aciklama']}"
-                            + (f"\n\n**Önerilen metin:** {note['oneri']}" if note.get("oneri") else ""))
+            note = P["llm_notes"].get(d["key"])
+            note_html = ""
+            if note:
+                note_html = (f'<div style="margin-top:10px;padding:8px 10px;border-radius:8px;'
+                             f'background:{ui.ACCENT_WASH};font-size:13px"><b>LLM · {esc(note["kategori"])}</b> — '
+                             f'{esc(note["aciklama"])}'
+                             + (f'<div style="margin-top:4px"><b>Önerilen metin:</b> {esc(note["oneri"])}</div>'
+                                if note.get("oneri") else "") + "</div>")
+            st.markdown(
+                f'<div class="gk-card"><div class="gk-card-h"><b>{esc(d["set"])}</b>'
+                f'<span class="gk-meta">{esc(d["id"])} · {esc(d["alan"])}</span>{ui.sev_chip(d["onem"])}'
+                f'<span class="gk-meta">{esc(d["etiketler"])}</span></div>'
+                f'{html_diff(d["referans"], d["deger"])}{note_html}</div>', unsafe_allow_html=True)
 
     # Kararlar
     st.subheader("Farklar ve kararlar")
@@ -585,7 +597,7 @@ elif page == PAGES[2]:
         ddf = ddf[["Set", "Req ID", "Alan", "Kategori", "Önem", "Detay", "Bu setteki değer", "Durum", "Not",
                    "key"]].reset_index(drop=True)
         edited = st.data_editor(
-            ddf, hide_index=True, key=f"dec_{cid}",
+            with_sev_icon(ddf), hide_index=True, key=f"dec_{cid}",
             disabled=[c_ for c_ in ddf.columns if c_ not in ("Durum", "Not")],
             column_config={"Durum": st.column_config.SelectboxColumn(options=STATUSES, required=True),
                            "key": None, "Bu setteki değer": st.column_config.TextColumn(width="medium")},
@@ -629,7 +641,7 @@ elif page == PAGES[2]:
 # --------------------------------------------------------------------------- 4. fark listesi
 elif page == PAGES[3]:
     need_analysis()
-    st.header("4 · Fark Listesi (DOORS iş listesi)")
+    header(PAGES[3])
     full = export.diff_table(A, P)
     if full.empty:
         st.success("Hiç fark bulunamadı. 🎉")
@@ -659,10 +671,12 @@ elif page == PAGES[3]:
     view = view.reset_index(drop=True)
 
     counts = full["Durum"].value_counts()
-    st.caption(f"{len(view)} / {len(full)} kayıt · " + " · ".join(f"{s}: {counts.get(s, 0)}" for s in STATUSES))
+    status_tone = {"Açık": "neutral", "Düzeltilecek": "warning", "Kasıtlı fark": "info", "Tamam": "good"}
+    ui.stat_tiles([{"label": "Gösterilen", "value": f"{len(view)} / {len(full)}"}]
+                  + [{"label": s_, "value": int(counts.get(s_, 0)), "tone": status_tone[s_]} for s_ in STATUSES])
     sig = abs(hash((tuple(sev_f), tuple(cat_f), tuple(st_f), tuple(set_f), tuple(field_f), q))) % 10**8
     edited = st.data_editor(
-        view, hide_index=True, key=f"fl_{sig}", height=560,
+        with_sev_icon(view), hide_index=True, key=f"fl_{sig}", height=560,
         disabled=[c for c in view.columns if c not in ("Durum", "Not")],
         column_config={
             "Durum": st.column_config.SelectboxColumn(options=STATUSES, required=True),
@@ -692,12 +706,10 @@ elif page == PAGES[3]:
 # --------------------------------------------------------------------------- 5. eşleşme önerileri
 elif page == PAGES[4]:
     need_analysis()
-    st.header("5 · Eşleşme Önerileri")
-    st.markdown(
-        "Otomatik eşleşme eşiğinin (**%{}**) altında kalan ama birbirine benzeyen öğeler ve aynı Source'a "
-        "sahip olup farklı gruplara düşen öğeler burada listelenir. Aynı gereksinim olduğunu "
-        "düşündüklerinizi işaretleyip birleştirin.".format(P["settings"]["threshold"])
-    )
+    header(PAGES[4])
+    st.caption("Otomatik eşleşme eşiğinin (%{}) altında kalan benzer öğeler ve aynı Source'a sahip olup farklı "
+               "gruplara düşen öğeler. Aynı gereksinim olanları işaretleyip birleştirin."
+               .format(P["settings"]["threshold"]))
     by_key = {it["key"]: it for it in A["items"]}
     sugg = list(A["suggestions"]) + [s for s in ss.semantic if s["a"] in by_key and s["b"] in by_key]
     ic = A["item_cluster"]
@@ -787,11 +799,7 @@ elif page == PAGES[4]:
 # --------------------------------------------------------------------------- 6. doğrulama
 elif page == PAGES[5]:
     need_analysis()
-    st.header("6 · Doğrulama")
-    st.markdown(
-        "**Akış:** ① Temel çizgiyi oluşturun (şu anki farkların fotoğrafı) → ② DOORS'ta düzeltin → "
-        "③ Güncellenmiş CSV'leri aşağıdan yükleyin → ④ Raporu inceleyin."
-    )
+    header(PAGES[5])
     base = P.get("baseline")
     c1, c2 = st.columns(2)
     if not base:
@@ -833,9 +841,8 @@ elif page == PAGES[5]:
         st.success("Temel çizgide ve şu anda hiç fark yok.")
         st.stop()
     counts = vdf["Durum"].value_counts()
-    m = st.columns(5)
-    for col, s in zip(m, [FIXED, STILL, CHANGED, NEW, GONE]):
-        col.metric(s, int(counts.get(s, 0)))
+    ui.stat_tiles([{"label": s_.split(" ", 1)[1], "value": int(counts.get(s_, 0)), "tone": VERIFY_TONE[s_]}
+                   for s_ in [FIXED, STILL, CHANGED, NEW, GONE]])
     total_old = len(base["diffs"])
     fixed = int(counts.get(FIXED, 0))
     st.progress(fixed / total_old if total_old else 1.0, text=f"{fixed} / {total_old} fark kapandı")
@@ -873,7 +880,7 @@ elif page == PAGES[5]:
 
 # --------------------------------------------------------------------------- 7. ayarlar
 elif page == PAGES[6]:
-    st.header("7 · Ayarlar")
+    header(PAGES[6])
     S = P["settings"]
     st.subheader("Eşleştirme")
     types_found = sorted({r["type"] for s in P["sets"].values() for r in s["rows"] if r["type"]} - {"Heading"})
