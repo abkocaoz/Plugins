@@ -18,7 +18,7 @@ from core.compare import SEVERITY, analyze, field_specs
 from core.loader import parse_set, set_name_from_filename
 from core.normalize import compare_form
 from core.project import (
-    STATUSES, list_projects, load_project, log, new_project, save_project,
+    STATUSES, list_projects, load_project, log, new_project, safe_name, save_project,
 )
 from core.verify import CHANGED, FIXED, GONE, NEW, STILL, compare_to_baseline, make_baseline
 
@@ -177,6 +177,21 @@ def style_sev(df: pd.DataFrame, col="Önem"):
                         subset=[col])
 
 
+def open_project(p: dict, save: bool = False):
+    ss.project = p
+    ss.analysis_sig = None
+    ss.semantic = []
+    if save:
+        persist()
+    # Sayfa yenilendiğinde (F5) aynı projenin yeniden açılması için adres çubuğunda tutulur
+    st.query_params["proje"] = safe_name(p["name"])
+    st.rerun()
+
+
+if ss.project is None and st.query_params.get("proje") in list_projects():
+    ss.project = load_project(st.query_params["proje"])
+    ss.analysis_sig = None
+
 # --------------------------------------------------------------------------- kenar çubuğu
 with st.sidebar:
     st.title("📑 Gereksinim Karşılaştırma")
@@ -185,20 +200,13 @@ with st.sidebar:
         if projects:
             sel = st.selectbox("Mevcut projeler", projects, key="proj_sel")
             if st.button("📂 Projeyi aç"):
-                ss.project = load_project(sel)
-                ss.analysis_sig = None
-                ss.semantic = []
-                st.rerun()
+                open_project(load_project(sel))
         new_name = st.text_input("Yeni proje adı", placeholder="ör. LCS ESD Karşılaştırma")
         if st.button("➕ Yeni proje oluştur", disabled=not new_name.strip()):
             if new_name.strip() in projects:
                 st.error("Bu adda bir proje zaten var.")
             else:
-                ss.project = new_project(new_name.strip())
-                ss.analysis_sig = None
-                ss.semantic = []
-                persist()
-                st.rerun()
+                open_project(new_project(new_name.strip()), save=True)
     if ss.project:
         p = ss.project
         st.success(f"**Proje:** {p['name']}")
@@ -780,11 +788,13 @@ elif page == PAGES[6]:
     else:
         chat = c1.text_input("Sohbet modeli", L["chat_model"])
         emb = c2.text_input("Embedding modeli", L["embed_model"])
-    if st.button("💾 LLM ayarlarını kaydet"):
-        L.update({"enabled": en, "url": url.strip(), "chat_model": chat.strip(), "embed_model": emb.strip()})
+    # Değişiklikler anında kaydedilir; kenar çubuğu bu sayfadan önce çizildiği için yeniden çalıştırılır.
+    new_llm = {"enabled": en, "url": url.strip(), "chat_model": chat.strip(), "embed_model": emb.strip()}
+    if any(L.get(k) != v for k, v in new_llm.items()):
+        L.update(new_llm)
         persist()
-        st.success("Kaydedildi.")
         st.rerun()
+    st.caption("LLM ayarları değiştirildiği anda otomatik kaydedilir.")
     if P["llm_notes"] and st.button(f"🧹 LLM açıklamalarını temizle ({len(P['llm_notes'])})"):
         P["llm_notes"], P["llm_cache"] = {}, {}
         persist()
