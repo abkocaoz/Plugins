@@ -1,0 +1,9 @@
+[server]
+address = "localhost"
+maxUploadSize = 500
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "light"
