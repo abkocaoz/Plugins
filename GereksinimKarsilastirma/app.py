@@ -91,6 +91,58 @@ def html_diff(ref: str, val: str) -> str:
     return f'<div style="white-space:pre-wrap;line-height:1.6;">{"".join(out)}</div>'
 
 
+_TABLE_CSS = """<style>
+.gk-wrap{max-height:%dpx;overflow:auto;border:1px solid #d0d7de;border-radius:6px;}
+.gk-t{border-collapse:separate;border-spacing:0;font-size:13px;color:#1f2328;width:max-content;}
+.gk-t th{position:sticky;top:0;z-index:2;background:#305496;color:#fff;text-align:left;
+  padding:6px 8px;white-space:nowrap;border-right:1px solid #4a6db0;}
+.gk-t td{padding:6px 8px;vertical-align:top;white-space:pre-wrap;word-break:break-word;
+  min-width:90px;max-width:%dpx;border-bottom:1px solid #e5e8eb;border-right:1px solid #eef0f2;background:#fff;}
+.gk-t td.gk-k,.gk-t th.gk-k{position:sticky;left:0;z-index:1;font-weight:600;background:#f3f5f8;
+  min-width:110px;white-space:nowrap;}
+.gk-t th.gk-k{z-index:3;background:#24406f;}
+.gk-t tr.gk-alt td{background:#f7f9fc;}
+.gk-t tr.gk-alt td.gk-k{background:#e9eef6;}
+.gk-t td.gk-d{background:#f8cbad !important;}
+.gk-t td.gk-r{background:#fff9e0 !important;}
+.gk-t td.gk-m{background:#ededed !important;color:#777;}
+.gk-t small.gk-n{display:block;margin-top:4px;color:#9c2b00;font-weight:600;}
+</style>"""
+
+
+def html_table(header: list[str], rows: list[tuple[str, list[tuple[str, str]]]], sticky_cols: int = 1,
+               max_height: int = 620, cell_width: int = 420) -> str:
+    """Kaydırılabilir, metni satır kaydıran HTML tablo.
+
+    rows: [(satır_sınıfı, [(hücre_html, hücre_sınıfı), ...]), ...] — hücre_html önceden kaçışlanmış olmalı.
+    İlk `sticky_cols` sütun yatay kaydırmada sabit kalır (yalnızca ilki yapışkan konumlandırılır).
+    """
+    th = "".join(f'<th class="{"gk-k" if i < sticky_cols else ""}">{h}</th>' for i, h in enumerate(header))
+    body = []
+    for rcls, cells in rows:
+        tds = "".join(
+            f'<td class="{"gk-k " if i < sticky_cols else ""}{cls}">{val}</td>' for i, (val, cls) in enumerate(cells)
+        )
+        body.append(f'<tr class="{rcls}">{tds}</tr>')
+    return (_TABLE_CSS % (max_height, cell_width)
+            + f'<div class="gk-wrap"><table class="gk-t"><thead><tr>{th}</tr></thead>'
+            + f'<tbody>{"".join(body)}</tbody></table></div>')
+
+
+def esc(v) -> str:
+    return html.escape("" if v is None else str(v))
+
+
+def diff_index(diffs: list[dict]) -> dict:
+    """{grup: {alan: [farklı setler]}} — kontrol ve eksik gereksinim kayıtları hariç."""
+    out: dict = {}
+    for d in diffs:
+        if d["alan"].startswith("Kontrol:") or d["alan"] == "(Gereksinim)":
+            continue
+        out.setdefault(d["grup"], {}).setdefault(d["alan"], []).append(d["set"])
+    return out
+
+
 def llm_cfg() -> dict:
     return ss.project["llm"]
 
@@ -342,6 +394,79 @@ elif page == PAGES[1]:
             continue
         rows.append(c["no"])
     view = mat[mat["Grup No"].isin(rows)] if not mat.empty else mat
+    mode = st.segmented_control(
+        "Görünüm", ["🟩 Kapsam matrisi", "📋 Sütunlarla liste"], default="🟩 Kapsam matrisi", key="p2_mode",
+        label_visibility="collapsed") or "🟩 Kapsam matrisi"
+
+    if mode == "📋 Sütunlarla liste":
+        by_no = {c["no"]: c for c in common}
+        dix = diff_index(A["diffs"])
+        specs = field_specs(P["sets"], P["settings"])
+        spec_by = {s["name"]: s for s in specs}
+        all_fields = [s["name"] for s in specs]
+        o1, o2 = st.columns([1.2, 3])
+        list_mode = o1.radio("Satırlar", ["Grup başına 1 satır (referans)", "Her setteki satır"],
+                             key="p2_list_mode",
+                             help="Referans: her ortak gereksinim için referans değerler; farklı olan setler "
+                                  "hücrenin altında yazılır. Her setteki satır: gruptaki tüm setlerin kendi değerleri.")
+        chosen = o2.multiselect("Gösterilecek sütunlar", all_fields, default=all_fields,
+                                key=f"p2_cols_{len(all_fields)}")
+        o3, o4, o5 = st.columns([1.2, 1.2, 1.6])
+        only_diff_cols = o3.toggle("Yalnızca farkı olan sütunlar", value=False, key="p2_only_diff_cols")
+        width = o4.select_slider("Hücre genişliği", [240, 320, 420, 560, 720], value=420, key="p2_width")
+        per_page = o5.select_slider("Sayfa başına grup", [10, 25, 50, 100], value=25, key="p2_pp")
+        if only_diff_cols:
+            used = {f for no in rows for f in dix.get(by_no[no]["cid"], {})}
+            chosen = [f for f in chosen if f in used]
+        n_pages = max(1, -(-len(rows) // per_page))
+        pg = st.number_input(f"Sayfa (toplam {n_pages})", 1, n_pages, 1, key=f"p2_page_{n_pages}") if n_pages > 1 else 1
+        page_rows = rows[(pg - 1) * per_page: pg * per_page]
+        legend = ("🟥 bu sütunda referanstan farklı set(ler) var (≠ altında yazılı)" if list_mode.startswith("Grup")
+                  else "🟥 referanstan farklı · ⬜ bu sette yok")
+        st.caption(f"{len(rows)} grup · {legend} · "
+                   "Sütunları üstteki kutudan seçebilir, tabloyu yatay/dikey kaydırabilirsiniz.")
+        out_rows = []
+        if list_mode.startswith("Grup"):
+            header = ["Grup", "Kapsam"] + [esc(f) for f in chosen]
+            for n, no in enumerate(page_rows):
+                c = by_no[no]
+                fd = dix.get(c["cid"], {})
+                cells = [(f"#{no}", ""), (f"{c['coverage']}/{n_sets}", "")]
+                for f in chosen:
+                    v = esc(c["refs"].get(f, {}).get("value", ""))
+                    bad = fd.get(f)
+                    if bad:
+                        v += f'<small class="gk-n">≠ {esc(", ".join(bad))}</small>'
+                    cells.append((v, "gk-d" if bad else ""))
+                out_rows.append(("gk-alt" if n % 2 else "", cells))
+            st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
+        else:
+            header = ["Grup", "Set", "Req ID"] + [esc(f) for f in chosen]
+            items = A["items"]
+            for n, no in enumerate(page_rows):
+                c = by_no[no]
+                fd = dix.get(c["cid"], {})
+                for i in c["members"]:
+                    it = items[i]
+                    cells = [(f"#{no}", ""), (esc(it["set"]), ""), (esc(it["id"]), "")]
+                    for f in chosen:
+                        v = spec_by[f]["get"](it)
+                        cells.append((esc(v), "gk-d" if it["set"] in fd.get(f, []) else ""))
+                    out_rows.append(("gk-alt" if n % 2 else "", cells))
+                for s in c["missing"]:
+                    empty = [("bu sette yok", "gk-m")] + [("", "gk-m")] * (len(chosen) - 1) if chosen else []
+                    out_rows.append(("gk-alt" if n % 2 else "",
+                                     [(f"#{no}", ""), (esc(s), "gk-m"), ("—", "gk-m")] + empty))
+            st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
+        if page_rows:
+            g1, g2 = st.columns([5, 1])
+            pick = g1.selectbox("Detayına gitmek istediğiniz grup", page_rows,
+                                format_func=lambda no: group_label(by_no[no]), key="p2_pick")
+            g2.write("")
+            if g2.button("🔍 Detaya git"):
+                goto(PAGES[2], detail_cid=by_no[pick]["cid"])
+        st.stop()
+
     st.caption(f"{len(view)} grup gösteriliyor · ✓ referansla aynı · ≠ farklı · – bu sette yok. "
                "Detay için bir satır seçin.")
     if not view.empty:
@@ -402,21 +527,39 @@ elif page == PAGES[2]:
     # Setlere göre tablo (farklı hücreler renkli)
     st.subheader("Setlerdeki haller")
     specs = field_specs(P["sets"], P["settings"])
-    table = []
-    for it in members:
-        r = {"Set": it["set"], "Req ID": it["id"], "Ekipman": it["equipment"]}
-        for spec in specs:
-            r[spec["name"]] = spec["get"](it)
-        table.append(r)
-    tdf = pd.DataFrame(table)
     diff_cells = {(d["set"], d["alan"]) for d in cdiffs if not d["alan"].startswith("Kontrol:")}
+    v1, v2, v3 = st.columns([1.6, 1.4, 1.2])
+    layout = v1.radio("Düzen", ["Yan yana (sütunlar satırda, setler yan yana)", "Tablo (her set bir satır)"],
+                      key="p3_layout", label_visibility="collapsed")
+    only_diff_f = v2.toggle("Yalnızca farklı sütunlar", value=False, key="p3_only_diff")
+    width = v3.select_slider("Hücre genişliği", [220, 300, 380, 480, 600], value=380, key="p3_width")
+    diff_fields = {f for _, f in diff_cells}
+    shown = [s for s in specs if not only_diff_f or s["name"] in diff_fields]
 
-    def _style_row(row):
-        return ["background-color:#f8cbad;color:#000" if (row["Set"], col) in diff_cells else ""
-                for col in row.index]
-
-    st.dataframe(tdf.style.apply(_style_row, axis=1), hide_index=True,
-                 column_config={"Gövde": st.column_config.TextColumn(width="large")})
+    if layout.startswith("Yan yana"):
+        header = ["Sütun", "Referans"] + [f"{esc(it['set'])}<br><small>{esc(it['id'])}</small>" for it in members]
+        header += [f"{esc(s)}<br><small>yok</small>" for s in c["missing"]]
+        out_rows = []
+        for n, spec in enumerate(shown):
+            ref = c["refs"].get(spec["name"], {})
+            cells = [(esc(spec["name"]), ""),
+                     (esc(ref.get("value", "")) + ('<small class="gk-n">eşit oy</small>' if ref.get("tie") else ""),
+                      "gk-r")]
+            cells += [(esc(spec["get"](it)), "gk-d" if (it["set"], spec["name"]) in diff_cells else "")
+                      for it in members]
+            cells += [("", "gk-m")] * len(c["missing"])
+            out_rows.append(("gk-alt" if n % 2 else "", cells))
+        st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
+        st.caption("🟨 Referans (ana set ya da çoğunluk) · 🟥 referanstan farklı · ⬜ bu sette yok. "
+                   "Tablo yatay kaydırılabilir; ilk sütun sabit kalır.")
+    else:
+        header = ["Set", "Req ID", "Ekipman"] + [esc(s["name"]) for s in shown]
+        out_rows = []
+        for n, it in enumerate(members):
+            cells = [(esc(it["set"]), ""), (esc(it["id"]), ""), (esc(it["equipment"]), "")]
+            cells += [(esc(s["get"](it)), "gk-d" if (it["set"], s["name"]) in diff_cells else "") for s in shown]
+            out_rows.append(("gk-alt" if n % 2 else "", cells))
+        st.markdown(html_table(header, out_rows, sticky_cols=1, cell_width=width), unsafe_allow_html=True)
 
     # Metin farkları
     text_diffs = [d for d in cdiffs if d["alan"] in ("Başlık", "Gövde")]
