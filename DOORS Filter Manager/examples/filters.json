@@ -1,0 +1,39 @@
+{
+  "format": "doors-filter-manager",
+  "version": 2,
+  "filters": [
+    {
+      "name": "Onayli Gereksinimler",
+      "conditions": [
+        {"attr": "Status", "op": "equals", "val": "Approved"}
+      ]
+    },
+    {
+      "name": "'shall' Iceren Nesneler",
+      "conditions": [
+        {"attr": "Object Text", "op": "contains", "val": "shall"}
+      ]
+    },
+    {
+      "name": "Yuksek Oncelik ve Kapanmamis",
+      "conditions": [
+        {"attr": "Priority", "op": "equals", "val": "High"},
+        {"attr": "Status", "op": "not_equals", "val": "Closed", "logic": "AND"}
+      ]
+    },
+    {
+      "name": "Gerekcesi Bos Olanlar",
+      "conditions": [
+        {"attr": "Rationale", "op": "is_empty", "val": ""}
+      ]
+    },
+    {
+      "name": "Aday Gereksinimler (3 kosul)",
+      "conditions": [
+        {"attr": "Status", "op": "equals", "val": "Proposed"},
+        {"attr": "Status", "op": "equals", "val": "In Review", "logic": "OR"},
+        {"attr": "Priority", "op": "equals", "val": "High", "logic": "AND"}
+      ]
+    }
+  ]
+}
