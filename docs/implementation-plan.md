@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phase 3 (reference extract/match/validation) implemented on branch; Phase 4+ not started
+**Status:** Phase 4 (Software Code Standard checklist engine) implemented on branch; Phase 5+ not started
 
 ---
 
@@ -231,11 +231,30 @@ Landed in `anova-checklist-review/`:
 - [x] Unit tests for normalize/match/extract/validate/identity
 - [ ] Live Compose e2e — still needs Docker host
 
-### Phase 4 — Software Code Standard checklist *(plan only)*
+### Phase 4 — Software Code Standard checklist (**implemented**)
 
-- First checklist definition + item methods (rule / retrieval / LLM JSON-schema)
-- Ollama concurrency 1; evidence grounding required in schema
-- Persist answers + evidence_links
+| Area | What |
+|---|---|
+| Catalog | Versioned scaffold `backend/app/catalogs/software_code_standard_v1.json` → `checklist_definitions` / `checklist_items` (seed API). **No real Excel template file in repo** (`template_gap.claimed_template_file_count=0`); cell-mapping config included for Phase 5 export |
+| Item fields | question, file/sheet/number, Answer/Chapter/Comment cells, applicability, required docs, clauses, reference deps, subchecks, acceptance criteria, method + config |
+| Methods | `deterministic_rule` (Python), `document_content` (Ollama JSON Schema + Pydantic), `cross_document`, `traceability` (full scan), `external_evidence`, `manual_review` |
+| LLM guards | Cite only provided evidence IDs; server verifies IDs/project/revision/quote; YES needs subchecks; NA needs inapplicability rationale; confidence ≠ approval; fake IDs → ERROR |
+| States | `YES` / `NO` / `NA` / `INSUFFICIENT_EVIDENCE` / `MANUAL_REVIEW` / `ERROR` — missing search ≠ NO; missing evidence ≠ NA |
+| Full scan | Items with `requires_full_scan` scan all extraction units (not a few RAG hits) |
+| Missing refs | Independent items run; dependent → `INSUFFICIENT_EVIDENCE` with critical ref errors surfaced |
+| Pinning | `checklist_runs.meta.pinned_standard_version_ids` (+ document version) |
+| Jobs / storage | `checklist_review`; `checklist_answers` + `ai_proposal` separate from `human_decision`; `evidence_links` |
+| UI | `/ui/checklist` + `GET /checklist-runs/{id}/view` (Phase 5 approve/export stubs) |
+
+**Acceptance (Phase 4):**
+
+- [x] Scaffold catalog + documented template gap (no invented template files)
+- [x] Methods + answer semantics + evidence ID verification
+- [x] Full-scan deterministic/traceability paths
+- [x] Dependent vs independent reference handling
+- [x] Job + APIs + minimal results UI
+- [x] Unit tests (YES/NO/NA/insufficient/fake evidence)
+- [ ] Live Ollama/Compose e2e — needs Docker host + Ollama model
 
 ### Phase 5 — Human review + Excel export *(plan only)*
 

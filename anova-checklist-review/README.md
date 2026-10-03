@@ -4,10 +4,11 @@ Internal document-review + Excel checklist application.
 
 See [`../docs/implementation-plan.md`](../docs/implementation-plan.md) for architecture, phases, and isolation rules.
 
-## Current status: Phase 3
+## Current status: Phase 4
 
-Upload → extract → index → **reference resolution / validation** (before checklist).
-Postgres job leases, standard catalog APIs, Qdrant hybrid indexing, and a reference review screen/API.
+Upload → extract → index → references → **Software Code Standard checklist evaluation**.
+
+Catalog is a versioned JSON scaffold (no real Excel template file in repo — see `templates/excel/README.md`).
 
 ## Quick start (deploy host with Docker)
 
@@ -41,6 +42,23 @@ curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/projects/$PROJECT_ID/jobs"
 # curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/document-versions/$VERSION_ID/reference-review"
 # curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/document-versions/$VERSION_ID/missing-references"
 # open $BASE/ui and $BASE/ui/references
+```
+
+### Checklist (Phase 4)
+
+```bash
+# Seed catalog (safe to repeat)
+curl -sS -X POST -H "X-API-Token: $TOKEN" \
+  "$BASE/api/v1/checklists/seed/software-code-standard"
+
+# Start evaluation job (after document extracted/indexed)
+curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"document_version_id\":\"$VERSION_ID\",\"definition_key\":\"software_code_standard\"}" \
+  "$BASE/api/v1/projects/$PROJECT_ID/checklist-runs"
+
+# When job result includes checklist_run_id:
+curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/checklist-runs/$RUN_ID/view"
+# or open $BASE/ui/checklist
 ```
 
 ### Missing source upload (content identity)

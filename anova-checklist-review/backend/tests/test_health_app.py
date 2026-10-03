@@ -9,7 +9,7 @@ def test_health_endpoint():
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "ok"
-    assert body["phase"] == 3
+    assert body["phase"] == 4
 
 
 def test_meta_lists_reference_statuses():
@@ -22,11 +22,18 @@ def test_meta_lists_reference_statuses():
     assert "MISSING_SOURCE" in statuses
 
 
-def test_minimal_ui_hook():
+def test_ui_hooks():
     client = TestClient(app)
-    r = client.get("/ui")
+    assert client.get("/ui").status_code == 200
+    assert "Phase 4" in client.get("/ui").text
+    assert "Reference review" in client.get("/ui/references").text
+    assert "Software Code Standard" in client.get("/ui/checklist").text
+
+
+def test_catalog_meta_endpoint():
+    client = TestClient(app)
+    r = client.get("/api/v1/checklists/catalog/software-code-standard/meta")
     assert r.status_code == 200
-    assert "Phase 3" in r.text
-    r2 = client.get("/ui/references")
-    assert r2.status_code == 200
-    assert "Reference review" in r2.text
+    body = r.json()
+    assert body["template_gap"]["claimed_template_file_count"] == 0
+    assert body["excel_template_path"] is None

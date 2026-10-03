@@ -10,3 +10,4 @@ class JobType(StrEnum):
     REINDEX_PROJECT = "reindex_project"
     REFERENCE_RESOLUTION = "reference_resolution"
     REFERENCE_VALIDATION = "reference_validation"
+    CHECKLIST_REVIEW = "checklist_review"

@@ -24,6 +24,7 @@ WORKER_JOB_TYPES = [
     JobType.REINDEX_PROJECT.value,
     JobType.REFERENCE_RESOLUTION.value,
     JobType.REFERENCE_VALIDATION.value,
+    JobType.CHECKLIST_REVIEW.value,
 ]
 
 

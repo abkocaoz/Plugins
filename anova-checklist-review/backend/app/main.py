@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
 from app import __version__
+from app.api.routes_checklists import router as checklists_router
 from app.api.routes_documents import router as documents_router
 from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
@@ -44,7 +45,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=__version__,
-    description="Document review + Excel checklist engine (Phase 3: reference validation)",
+    description="Document review + Excel checklist engine (Phase 4: Software Code Standard)",
     lifespan=lifespan,
 )
 
@@ -54,6 +55,7 @@ app.include_router(documents_router)
 app.include_router(standards_router)
 app.include_router(jobs_router)
 app.include_router(references_router)
+app.include_router(checklists_router)
 
 
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
@@ -66,11 +68,16 @@ async def reference_review_ui() -> str:
     return _REF_UI_HTML
 
 
+@app.get("/ui/checklist", response_class=HTMLResponse, include_in_schema=False)
+async def checklist_ui() -> str:
+    return _CHECKLIST_UI_HTML
+
+
 _UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>ACR Phase 3 — upload hook</title>
+  <title>ACR Phase 4 — upload hook</title>
   <style>
     body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.45}
     label{display:block;margin-top:.75rem;font-weight:600}
@@ -81,9 +88,9 @@ _UI_HTML = """<!doctype html>
   </style>
 </head>
 <body>
-  <h1>Anova Checklist Review — Phase 3</h1>
-  <p>Upload → extract → index → <strong>reference resolution/validation</strong>.
-  <a href="/ui/references">Reference review screen</a></p>
+  <h1>Anova Checklist Review — Phase 4</h1>
+  <p>Upload → extract → index → references → <strong>Software Code Standard checklist</strong>.
+  <a href="/ui/references">Reference review</a> · <a href="/ui/checklist">Checklist results</a></p>
   <label>API token <input id="token" value="dev-change-me"/></label>
   <label>Project ID <input id="projectId" placeholder="uuid"/></label>
   <label>Title <input id="title" placeholder="optional"/></label>
@@ -198,6 +205,85 @@ _REF_UI_HTML = """<!doctype html>
       headers: {'X-API-Token': token()}
     });
     document.getElementById('sum').textContent = JSON.stringify(await r.json(), null, 2);
+  };
+  </script>
+</body>
+</html>"""
+
+
+_CHECKLIST_UI_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>ACR — Checklist results</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:980px;margin:2rem auto;padding:0 1rem;line-height:1.4}
+    label{display:block;margin-top:.6rem;font-weight:600}
+    input,button{margin-top:.25rem;padding:.5rem}
+    input{width:100%}
+    button{cursor:pointer;margin-right:.5rem}
+    .card{border:1px solid #ddd;padding:.75rem 1rem;margin:.75rem 0;border-radius:6px}
+    .status{font-weight:700}
+    pre{background:#f6f6f6;padding:.5rem;overflow:auto;white-space:pre-wrap}
+    .muted{color:#666;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <h1>Software Code Standard — results</h1>
+  <p class="muted">AI proposal is shown separately from human decision. Approve/Excel export = Phase 5 stubs.</p>
+  <p><a href="/ui">← Upload</a> · <a href="/ui/references">References</a></p>
+  <label>API token <input id="token" value="dev-change-me"/></label>
+  <label>Project ID <input id="pid"/></label>
+  <label>Document version ID <input id="vid"/></label>
+  <label>Checklist run ID (after job) <input id="rid"/></label>
+  <button id="seed">Seed catalog</button>
+  <button id="start">Start checklist_review job</button>
+  <button id="load">Load run view</button>
+  <h2>Output</h2>
+  <pre id="out">{}</pre>
+  <div id="items"></div>
+  <script>
+  const token = () => document.getElementById('token').value.trim();
+  const headers = () => ({'X-API-Token': token(), 'Content-Type': 'application/json'});
+  document.getElementById('seed').onclick = async () => {
+    const r = await fetch('/api/v1/checklists/seed/software-code-standard', {method:'POST', headers: headers()});
+    document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+  };
+  document.getElementById('start').onclick = async () => {
+    const pid = document.getElementById('pid').value.trim();
+    const body = {
+      document_version_id: document.getElementById('vid').value.trim(),
+      definition_key: 'software_code_standard'
+    };
+    const r = await fetch('/api/v1/projects/' + pid + '/checklist-runs', {
+      method:'POST', headers: headers(), body: JSON.stringify(body)
+    });
+    const data = await r.json();
+    document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+  };
+  document.getElementById('load').onclick = async () => {
+    const rid = document.getElementById('rid').value.trim();
+    const r = await fetch('/api/v1/checklist-runs/' + rid + '/view', {headers: {'X-API-Token': token()}});
+    const data = await r.json();
+    document.getElementById('out').textContent = JSON.stringify({
+      run: data.run, template_gap: data.template_gap,
+      pinned_standard_version_ids: data.pinned_standard_version_ids
+    }, null, 2);
+    const root = document.getElementById('items');
+    root.innerHTML = '';
+    (data.items || []).forEach(it => {
+      const d = document.createElement('div');
+      d.className = 'card';
+      d.innerHTML = '<div class="status">' + it.state +
+        (it.human_decision ? ' · human=' + it.human_decision : ' · human=∅') +
+        ' · ' + it.method + '</div>' +
+        '<div><strong>' + it.item_key + '</strong> — ' + it.question + '</div>' +
+        '<div class="muted">' + (it.rationale || '') + '</div>' +
+        '<pre>ai_proposal: ' + JSON.stringify(it.ai_proposal, null, 2) + '</pre>' +
+        '<pre>evidence: ' + JSON.stringify(it.evidence, null, 2) + '</pre>' +
+        '<div class="muted">' + JSON.stringify(it.phase5_hooks) + '</div>';
+      root.appendChild(d);
+    });
   };
   </script>
 </body>

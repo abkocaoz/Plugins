@@ -19,13 +19,24 @@ class ReferenceStatus(StrEnum):
 
 
 class ChecklistAnswerState(StrEnum):
-    PASS = "PASS"
-    FAIL = "FAIL"
-    PARTIAL = "PARTIAL"
-    NOT_APPLICABLE = "NOT_APPLICABLE"
+    """Phase 4 answer states (Software Code Standard engine)."""
+
+    YES = "YES"
+    NO = "NO"
+    NA = "NA"
     INSUFFICIENT_EVIDENCE = "INSUFFICIENT_EVIDENCE"
     MANUAL_REVIEW = "MANUAL_REVIEW"
+    ERROR = "ERROR"
     PENDING = "PENDING"
+
+
+class ChecklistMethod(StrEnum):
+    DOCUMENT_CONTENT = "document_content"
+    DETERMINISTIC_RULE = "deterministic_rule"
+    CROSS_DOCUMENT = "cross_document"
+    TRACEABILITY = "traceability"
+    EXTERNAL_EVIDENCE = "external_evidence"
+    MANUAL_REVIEW = "manual_review"
 
 
 class JobStatus(StrEnum):

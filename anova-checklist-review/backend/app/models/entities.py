@@ -313,10 +313,19 @@ class ChecklistAnswer(Base, TimestampMixin):
     item_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("checklist_items.id", ondelete="CASCADE"), nullable=False
     )
+    # Effective display state (AI proposal until human decides in Phase 5)
     state: Mapped[str] = mapped_column(String(64), nullable=False, default="PENDING")
     confidence: Mapped[Optional[float]] = mapped_column(Float)
     rationale: Mapped[Optional[str]] = mapped_column(Text)
     raw_model_output: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    # Phase 4: keep AI proposal separate from human decision
+    ai_proposal: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
+    human_decision: Mapped[Optional[str]] = mapped_column(String(64))
+    chapter_text: Mapped[Optional[str]] = mapped_column(Text)
+    comment_text: Mapped[Optional[str]] = mapped_column(Text)
+    excel_answer_cell: Mapped[Optional[str]] = mapped_column(String(32))
+    excel_chapter_cell: Mapped[Optional[str]] = mapped_column(String(32))
+    excel_comment_cell: Mapped[Optional[str]] = mapped_column(String(32))
 
 
 class Review(Base, TimestampMixin):

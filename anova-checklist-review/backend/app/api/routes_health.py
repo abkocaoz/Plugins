@@ -15,7 +15,7 @@ async def health(settings: Settings = Depends(get_settings)) -> dict:
     return {
         "status": "ok",
         "service": settings.app_name,
-        "phase": 3,
+        "phase": 4,
         "worker_enabled": settings.worker_enabled,
     }
 

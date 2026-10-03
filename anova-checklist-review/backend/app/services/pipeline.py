@@ -50,6 +50,8 @@ async def process_job(session: AsyncSession, settings: Settings, job: Job) -> di
         return await run_reference_resolution(session, settings, job)
     if job.job_type == JobType.REFERENCE_VALIDATION:
         return await run_reference_validation(session, settings, job)
+    if job.job_type == JobType.CHECKLIST_REVIEW:
+        return await run_checklist_review_job(session, settings, job)
     raise ValueError(f"Unknown job type: {job.job_type}")
 
 
@@ -687,4 +689,25 @@ async def _enqueue_affected_reference_checks(
         # Note: validation is chained from resolution; ref_ids used when partial revalidate needed
         _ = ref_ids
     return job_ids
+
+
+async def run_checklist_review_job(
+    session: AsyncSession, settings: Settings, job: Job
+) -> dict[str, Any]:
+    from app.services.checklist_engine import run_checklist_review
+
+    project_id = job.project_id or uuid.UUID(job.payload["project_id"])
+    document_version_id = uuid.UUID(job.payload["document_version_id"])
+    definition_key = job.payload.get("definition_key") or "software_code_standard"
+    pinned = job.payload.get("pinned_standard_version_ids")
+    external = job.payload.get("external_evidence_document_version_ids")
+    return await run_checklist_review(
+        session,
+        settings,
+        project_id=project_id,
+        document_version_id=document_version_id,
+        definition_key=definition_key,
+        pinned_standard_version_ids=list(pinned) if pinned else None,
+        external_evidence_document_version_ids=list(external) if external else None,
+    )
 
