@@ -27,9 +27,18 @@ class Settings(BaseSettings):
     embedding_url: str = "http://embedding:8080"
     embedding_model_id: str = "BAAI/bge-m3"
     embedding_dim: int = 1024
+    embedding_batch_size: int = 16
 
     upload_dir: str = "/data/uploads"
     export_dir: str = "/data/exports"
+
+    # Background worker (extract + index). Disable in unit tests.
+    worker_enabled: bool = True
+    worker_poll_seconds: float = 2.0
+    worker_lease_seconds: int = 120
+    worker_heartbeat_seconds: int = 30
+    chunk_size_chars: int = 1200
+    chunk_overlap_chars: int = 150
 
 
 @lru_cache

@@ -382,6 +382,7 @@ class Job(Base, TimestampMixin):
     __table_args__ = (
         Index("ix_jobs_status_available", "status", "available_at"),
         Index("ix_jobs_lease", "lease_owner", "lease_expires_at"),
+        UniqueConstraint("idempotency_key", name="uq_jobs_idempotency_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=_uuid)
@@ -400,6 +401,7 @@ class Job(Base, TimestampMixin):
     lease_owner: Mapped[Optional[str]] = mapped_column(String(128))
     lease_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[Optional[str]] = mapped_column(Text)
+    idempotency_key: Mapped[Optional[str]] = mapped_column(String(300))
 
 
 class Export(Base, TimestampMixin):

@@ -1,0 +1,6 @@
+# Optional heavy deps for real BGE-M3 (EMBEDDING_LOAD_MODEL=1).
+# Keep default embedding image lean; install these on a host with enough RAM/CPU/GPU.
+FlagEmbedding==1.4.2
+torch==2.6.0
+transformers==4.49.0
+sentencepiece==0.2.0

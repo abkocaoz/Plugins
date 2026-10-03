@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phase 1 foundation in progress
+**Status:** Phase 2 (upload → extract → index) implemented on branch; Phase 3+ not started
 
 ---
 
@@ -147,7 +147,7 @@ Core tables (Phase 1 migrations scaffolded):
 
 ## 6. Phased delivery
 
-### Phase 1 — Foundation (**implement now**)
+### Phase 1 — Foundation (**done**)
 
 1. Repo inspection + this plan
 2. SQLAlchemy models + Alembic migration for core tables
@@ -158,20 +158,50 @@ Core tables (Phase 1 migrations scaffolded):
 
 **Acceptance (Phase 1):**
 
-- [ ] `docs/implementation-plan.md` reflects real repo findings and configurable unknowns
-- [ ] `docker compose -p anova-checklist-review config` validates (on a Docker host)
-- [ ] Preflight fails clearly on busy gateway port / missing Docker / low resources
-- [ ] Alembic migration creates listed tables
-- [ ] `GET /health` and `GET /ready` work when stack is up
-- [ ] No host ports for postgres/qdrant/ollama/embedding in compose
-- [ ] Pinned image/dep versions (no `:latest` in prod compose)
+- [x] `docs/implementation-plan.md` reflects real repo findings and configurable unknowns
+- [ ] `docker compose -p anova-checklist-review config` validates (on a Docker host) — **blocked in agent VM (no Docker)**
+- [x] Preflight fails clearly on busy gateway port / missing Docker / low resources
+- [x] Alembic migration creates listed tables
+- [ ] `GET /health` and `GET /ready` work when stack is up — `/health` unit-tested; `/ready` needs Postgres
+- [x] No host ports for postgres/qdrant/ollama/embedding in compose
+- [x] Pinned image/dep versions (no `:latest` in prod compose)
 
-### Phase 2 — Documents + catalog + indexing *(plan only)*
+### Phase 2 — Documents + catalog + indexing (**implemented**)
 
-- Upload PDF/DOCX/XLSX/CSV/code; extract text/structure
-- Standard catalog CRUD + aliases
-- Chunking + BGE-M3 dense(1024)+sparse upsert into Qdrant collections
-- Job types: `ingest_document`, `index_standard`, `reindex_project`
+Landed in `anova-checklist-review/`:
+
+| Area | What |
+|---|---|
+| Upload / storage | `POST /api/v1/projects/{id}/documents` preserves original bytes under `{project}/{doc}/{version}/original__…`, SHA-256, doc_type, revision (`version_label`); new revision ≠ overwrite |
+| Extraction | PDF/DOCX/XLSX/CSV/code scaffolding with locators; issues `OCR_NEEDED` / `UNREADABLE` / `UNSUPPORTED_FORMAT` recorded in `document_versions.meta.extraction` |
+| Catalog APIs | Standards + versions + aliases + project standard-sets CRUD |
+| Jobs | Postgres queue: `extract_document` → `index_document` / `index_standard`; `reindex_project`; lease + heartbeat; `idempotency_key` (migration `20261003_0002`) |
+| Qdrant | Collections `standards_bgem3_v1` / `project_documents_bgem3_v1`, named vectors `dense`+`sparse`, payload indexes for ids/sha/chunk_index/… |
+| Embedding | Separate service; default deterministic hybrid stub; optional real BGE-M3 via `EMBEDDING_LOAD_MODEL=1` + `embedding/requirements-ml.txt` |
+| UI hook | Minimal `/ui` upload page (not full validation UI) |
+
+**Job types (actual):** `extract_document`, `index_document`, `index_standard`, `reindex_project`  
+(Plan earlier said `ingest_document` — renamed to clearer `extract_document`.)
+
+**Acceptance (Phase 2):**
+
+- [x] Upload preserves original + sha + revision separation
+- [x] Extractors emit source locators + issue codes (no OCR engine yet)
+- [x] Catalog/version/alias APIs
+- [x] Indexer targets both Qdrant collections with hybrid vectors + payload indexes
+- [x] Queue lease/heartbeat/idempotency
+- [x] Unit tests for extraction/chunking/storage/jobs/qdrant payload/embedding client
+- [ ] End-to-end against live Compose (Postgres+Qdrant+embedding) — **requires Docker host**
+- [ ] Real BGE-M3 weights loaded — **optional; not default on CPU-slim agent/deploy**
+
+**Known gaps (Phase 2):**
+
+- No OCR (scanned PDFs → `OCR_NEEDED` only)
+- Embedding stub used unless `EMBEDDING_LOAD_MODEL=1` and ML deps installed
+- Agent/dev VM still has no Docker — full stack exercise deferred to deploy host
+- No reference-validation UI (Phase 3)
+- Auth remains `dev` token / `open` for tests
+- DOC (legacy `.doc`) / PPT not supported
 
 ### Phase 3 — Reference extract / match / validation UI *(plan only)*
 
@@ -256,8 +286,27 @@ Core tables (Phase 1 migrations scaffolded):
 | Preflight | `anova-checklist-review/scripts/preflight_check.py` |
 | API + migrations | `anova-checklist-review/backend/` |
 | Embedding service skeleton | `anova-checklist-review/embedding/` |
-| Frontend (Phase 1 placeholder) | `anova-checklist-review/frontend/` README only until Phase 3+ |
-| Tests | `anova-checklist-review/backend/tests/`, compose sanity tests |
+| Frontend | `anova-checklist-review/frontend/` placeholder; Phase 2 uses API + `/ui` hook |
+| Tests | `anova-checklist-review/backend/tests/`, embedding stub tests, compose sanity |
+
+### Phase 2 local exercise (Docker host)
+
+```bash
+cd anova-checklist-review
+cp .env.example .env
+python3 scripts/preflight_check.py
+docker compose -p anova-checklist-review up -d --build
+TOKEN=dev-change-me
+# create project
+curl -sS -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"slug":"demo","name":"Demo"}' http://127.0.0.1:18080/api/v1/projects
+# upload (replace PROJECT_ID)
+curl -sS -H "X-API-Token: $TOKEN" \
+  -F file=@./README.md -F doc_type=code -F version_label=1 \
+  http://127.0.0.1:18080/api/v1/projects/PROJECT_ID/documents
+# poll job / document-version until meta.indexing.status=ok
+# or open http://127.0.0.1:18080/ui
+```
 
 ---
 

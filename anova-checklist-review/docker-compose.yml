@@ -42,6 +42,11 @@ services:
       EXPORT_DIR: ${EXPORT_DIR:-/data/exports}
       OLLAMA_MAX_CONCURRENCY: ${OLLAMA_MAX_CONCURRENCY:-1}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      WORKER_ENABLED: ${WORKER_ENABLED:-true}
+      AUTH_MODE: ${AUTH_MODE:-dev}
+      DEV_API_TOKEN: ${DEV_API_TOKEN:-dev-change-me}
+      CHUNK_SIZE_CHARS: ${CHUNK_SIZE_CHARS:-1200}
+      CHUNK_OVERLAP_CHARS: ${CHUNK_OVERLAP_CHARS:-150}
     volumes:
       - acr_app_uploads:/data/uploads
       - acr_app_exports:/data/exports
@@ -115,6 +120,7 @@ services:
       EMBEDDING_MODEL_REVISION: ${EMBEDDING_MODEL_REVISION:-}
       EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
       EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
+      EMBEDDING_LOAD_MODEL: ${EMBEDDING_LOAD_MODEL:-0}
     volumes:
       - acr_embedding_cache:/models
     networks:

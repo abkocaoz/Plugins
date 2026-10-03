@@ -1,4 +1,4 @@
-# Pinned after PyPI verification (2026-10-03 agent environment). No floating latest.
+# Pinned after PyPI verification (agent environment). No floating latest.
 fastapi==0.115.14
 uvicorn[standard]==0.34.3
 pydantic==2.11.10
@@ -11,5 +11,11 @@ httpx==0.28.1
 python-multipart==0.0.20
 openpyxl==3.1.5
 qdrant-client==1.14.3
+pypdf==6.19.0
+python-docx==1.2.0
+chardet==5.2.0
+aiofiles==24.1.0
 pytest==8.3.5
+pytest-asyncio==0.25.3
 pyyaml==6.0.2
+anyio==4.9.0
