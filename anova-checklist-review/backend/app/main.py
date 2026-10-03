@@ -45,7 +45,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=__version__,
-    description="Document review + Excel checklist engine (Phase 6: DataICD + SECI cross-doc)",
+    description="Document review + Excel checklist engine (Phases 1–7: registry + ops docs)",
     lifespan=lifespan,
 )
 
@@ -242,11 +242,15 @@ _CHECKLIST_UI_HTML = """<!doctype html>
       <option value="software_code_standard">software_code_standard</option>
       <option value="data_icd">data_icd</option>
       <option value="seci">seci</option>
+      <option value="requirements_traceability">requirements_traceability</option>
+      <option value="configuration_management">configuration_management</option>
     </select>
   </label>
   <label>Pinned peer document version IDs (comma-separated, for SECI) <input id="peers"/></label>
   <label>Checklist run ID <input id="rid"/></label>
+  <button id="registry">Show registry</button>
   <button id="seed">Seed selected catalog</button>
+  <button id="seedAll">Seed all seedable</button>
   <button id="start">Start checklist_review job</button>
   <button id="load">Load run view</button>
   <button id="exportDraft">Export draft</button>
@@ -258,9 +262,17 @@ _CHECKLIST_UI_HTML = """<!doctype html>
   <script>
   const token = () => document.getElementById('token').value.trim();
   const headers = () => ({'X-API-Token': token(), 'Content-Type': 'application/json'});
+  document.getElementById('registry').onclick = async () => {
+    const r = await fetch('/api/v1/checklists/registry', {headers: {'X-API-Token': token()}});
+    document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+  };
   document.getElementById('seed').onclick = async () => {
     const key = document.getElementById('dkey').value.replaceAll('_','-');
     const r = await fetch('/api/v1/checklists/seed/' + key, {method:'POST', headers: headers()});
+    document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+  };
+  document.getElementById('seedAll').onclick = async () => {
+    const r = await fetch('/api/v1/checklists/seed-all', {method:'POST', headers: headers()});
     document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
   };
   document.getElementById('start').onclick = async () => {

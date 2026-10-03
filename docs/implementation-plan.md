@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phase 6 (DataICD deterministic + SECI cross-doc) implemented on branch; Phase 7 not started
+**Status:** Phases 1–7 complete for this delivery wave (foundation → registry/onboarding + ops docs). Production Excel templates still must be supplied.
 
 ---
 
@@ -298,11 +298,27 @@ Landed in `anova-checklist-review/`:
 - [x] SECI cross-document comparison with pinned document versions
 - [x] Wired into engine / jobs / human review / export
 - [x] Unit tests + plan/README update
-- [x] Phase 7 (remaining checklists) **not** expanded
+- [x] Phase 7 deferred until registry wave (now implemented below)
 
-### Phase 7 — Expand other checklists *(plan only)*
+### Phase 7 — Registry, onboarding, ops polish (**implemented**)
 
-- Additional checklist packs driven by `checklist_definitions` data, not hard-coded UI
+| Area | What |
+|---|---|
+| Registry | `backend/app/catalogs/checklist_registry.json` + `GET /api/v1/checklists/registry` |
+| Seedable scaffolds | SCS, DataICD, SECI (implemented) + thin **Requirements Traceability** + **Configuration Management** |
+| Empty slots | `awaiting_template` entries (design_review, test_evidence, …) — **not** invented full checklists; seed → 409 |
+| Onboarding | `docs/checklist-onboarding.md` + `POST /checklists/registry/validate-onboarding` |
+| Honesty | `claimed_production_template_count=0`; do not claim 21 real templates exist in-repo |
+| Ops docs | `docs/setup.md`, `model-prep.md`, `backup-restore.md`, `known-limitations.md` |
+| Isolation | Compose project `anova-checklist-review`, preflight, `.env.example` unchanged in spirit; compose sanity tests remain |
+
+**Acceptance (Phase 7):**
+
+- [x] Extension framework / registry (definition_key, catalog JSON, cell mapping, optional fixture)
+- [x] Few representative scaffolds + empty slots (no fake set of 21 full checklists)
+- [x] v1 setup / model prep / backup-restore / limitations docs
+- [x] Isolation/preflight/.env/compose still satisfy isolation rules
+- [x] Registry/onboarding tests + plan/README update
 
 ---
 
@@ -339,11 +355,18 @@ Landed in `anova-checklist-review/`:
 
 ---
 
-## 9. Ops notes (later)
+## 9. Ops notes
 
-- Backups: `pg_dump` + volume snapshots for Qdrant/uploads/exports — scoped to this Compose project
+| Topic | Doc |
+|---|---|
+| Setup + isolation | [`docs/setup.md`](setup.md) |
+| Ollama + BGE-M3 | [`docs/model-prep.md`](model-prep.md) |
+| Backup / restore | [`docs/backup-restore.md`](backup-restore.md) |
+| Checklist onboarding | [`docs/checklist-onboarding.md`](checklist-onboarding.md) |
+| Limitations / pilot | [`docs/known-limitations.md`](known-limitations.md) |
+
 - Maintenance: `docker compose -p anova-checklist-review …` only
-- Audit: every export, decision override, and source replace → `audit_events`
+- Audit: export, decision override, and source replace → `audit_events`
 
 ---
 
@@ -352,13 +375,15 @@ Landed in `anova-checklist-review/`:
 | Deliverable | Location |
 |---|---|
 | This plan | `docs/implementation-plan.md` |
+| Setup / models / backup / limitations / onboarding | `docs/*.md` |
 | App tree | `anova-checklist-review/` |
 | Compose + gateway | `anova-checklist-review/docker-compose.yml`, `deploy/nginx.conf` |
 | Env sample | `anova-checklist-review/.env.example` |
 | Preflight | `anova-checklist-review/scripts/preflight_check.py` |
+| Checklist registry | `backend/app/catalogs/checklist_registry.json` |
 | API + migrations | `anova-checklist-review/backend/` |
 | Embedding service skeleton | `anova-checklist-review/embedding/` |
-| Frontend | `anova-checklist-review/frontend/` placeholder; Phase 2 uses API + `/ui` hook |
+| Frontend | `anova-checklist-review/frontend/` placeholder; `/ui` hooks for upload/refs/checklist |
 | Tests | `anova-checklist-review/backend/tests/`, embedding stub tests, compose sanity |
 
 ### Phase 2 local exercise (Docker host)

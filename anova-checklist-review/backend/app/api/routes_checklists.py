@@ -31,10 +31,14 @@ from app.models.entities import (
 )
 from app.schemas.common import JobOut, ORMModel
 from app.services.checklist_catalog import (
-    CATALOG_PATHS,
+    get_registry_entry,
     list_catalog_keys,
     load_catalog_file,
+    registry_public_view,
+    seed_all_seedable,
     seed_catalog_by_key,
+    seedable_catalog_paths,
+    validate_onboarding_package,
 )
 from app.services.excel_export import resolve_template_path
 from app.services.human_review import (
@@ -193,15 +197,57 @@ async def seed_checklist_by_key(
     key: str, db: AsyncSession = Depends(get_db)
 ) -> ChecklistDefinition:
     normalized = key.replace("-", "_")
-    if normalized not in CATALOG_PATHS:
+    paths = seedable_catalog_paths()
+    if normalized not in paths:
+        entry = get_registry_entry(normalized)
+        if entry and not entry.get("seedable"):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"catalog {normalized!r} is registered as {entry.get('status')} "
+                    f"(not seedable). Supply real template + catalog JSON — see docs/checklist-onboarding.md"
+                ),
+            )
         raise HTTPException(
             status_code=404,
-            detail=f"unknown catalog key; known={list_catalog_keys()}",
+            detail=f"unknown catalog key; seedable={list_catalog_keys()}",
         )
     definition = await seed_catalog_by_key(db, normalized)
     await db.commit()
     await db.refresh(definition)
     return definition
+
+
+@router.post("/checklists/seed-all")
+async def seed_all_checklists(db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
+    keys = await seed_all_seedable(db)
+    await db.commit()
+    return {"seeded": keys, "count": len(keys)}
+
+
+@router.get("/checklists/registry")
+async def get_checklist_registry() -> dict[str, Any]:
+    """Phase 7 registry: implemented scaffolds, representative scaffolds, awaiting_template slots."""
+    return registry_public_view()
+
+
+class OnboardValidateBody(BaseModel):
+    definition_key: str
+    catalog: dict[str, Any]
+    template_path: str | None = None
+
+
+@router.post("/checklists/registry/validate-onboarding")
+async def validate_onboarding(body: OnboardValidateBody) -> dict[str, Any]:
+    """Dry-run validation for onboarding a real template + catalog (does not write DB)."""
+    from pathlib import Path
+
+    tpath = Path(body.template_path) if body.template_path else None
+    return validate_onboarding_package(
+        definition_key=body.definition_key,
+        catalog=body.catalog,
+        template_path=tpath,
+    )
 
 
 @router.get("/checklists", response_model=list[ChecklistDefinitionOut])
@@ -248,12 +294,27 @@ async def catalog_meta_scs() -> dict[str, Any]:
 @router.get("/checklists/catalog/{key}/meta")
 async def catalog_meta(key: str) -> dict[str, Any]:
     normalized = key.replace("-", "_")
-    if normalized not in CATALOG_PATHS:
+    paths = seedable_catalog_paths()
+    if normalized not in paths:
+        entry = get_registry_entry(normalized)
+        if entry:
+            return {
+                "key": normalized,
+                "status": entry.get("status"),
+                "seedable": False,
+                "template_gap": {
+                    "status": "awaiting_template",
+                    "note": entry.get("notes"),
+                    "claimed_template_file_count": 0,
+                },
+                "known_catalogs": list_catalog_keys(),
+            }
         raise HTTPException(
             status_code=404,
-            detail=f"unknown catalog key; known={list_catalog_keys()}",
+            detail=f"unknown catalog key; seedable={list_catalog_keys()}",
         )
     data = load_catalog_file(key=normalized)
+    entry = get_registry_entry(normalized)
     return {
         "key": data["key"],
         "version_label": data["version_label"],
@@ -261,6 +322,7 @@ async def catalog_meta(key: str) -> dict[str, Any]:
         "template_gap": data.get("template_gap"),
         "cell_mapping": data.get("cell_mapping"),
         "excel_template_path": data.get("excel_template_path"),
+        "registry_status": (entry or {}).get("status"),
         "known_catalogs": list_catalog_keys(),
     }
 
@@ -289,7 +351,7 @@ async def start_checklist_run(
     definition = await db.scalar(
         select(ChecklistDefinition).where(ChecklistDefinition.key == body.definition_key)
     )
-    if definition is None and body.definition_key in CATALOG_PATHS:
+    if definition is None and body.definition_key in seedable_catalog_paths():
         await seed_catalog_by_key(db, body.definition_key)
 
     job = await enqueue_job(

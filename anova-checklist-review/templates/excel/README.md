@@ -3,6 +3,9 @@
 Place **production** checklist Excel templates here (or configure paths in
 `checklist_definitions.excel_template_path`).
 
+Onboarding steps: [`docs/checklist-onboarding.md`](../../docs/checklist-onboarding.md).
+Registry: `backend/app/catalogs/checklist_registry.json` / `GET /api/v1/checklists/registry`.
+
 ## Gap (honest)
 
 **No production Software Code Standard `.xlsx` / `.xlsm` was found in this repository.**

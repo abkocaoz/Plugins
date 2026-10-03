@@ -4,11 +4,22 @@ Internal document-review + Excel checklist application.
 
 See [`../docs/implementation-plan.md`](../docs/implementation-plan.md) for architecture, phases, and isolation rules.
 
-## Current status: Phase 6
+## Current status: Phases 1–7 (delivery wave)
 
-Upload → extract → index → references → checklist evaluation (Software Code Standard, **DataICD**, **SECI**) → human review + Excel export.
+Upload → extract → index → references → checklist evaluation → human review + Excel export → **registry/onboarding**.
 
-Catalogs are versioned JSON scaffolds. Production Excel templates are **not** in the repo; synthetic `.xlsx` fixtures support mapping/preservation tests (see `templates/excel/README.md`). Do not assume 21 real templates exist. Phase 7 (remaining checklists) is not started.
+Catalogs are versioned JSON scaffolds driven by `backend/app/catalogs/checklist_registry.json`. Production Excel templates are **not** in the repo; synthetic fixtures support tests only. **Do not assume 21 real templates exist.** See [`docs/checklist-onboarding.md`](../docs/checklist-onboarding.md) and [`docs/known-limitations.md`](../docs/known-limitations.md).
+
+## Docs
+
+| Doc | Topic |
+|---|---|
+| [`docs/setup.md`](../docs/setup.md) | Deploy / isolation |
+| [`docs/model-prep.md`](../docs/model-prep.md) | Ollama + BGE-M3 |
+| [`docs/backup-restore.md`](../docs/backup-restore.md) | Postgres + files + Qdrant |
+| [`docs/checklist-onboarding.md`](../docs/checklist-onboarding.md) | Add a real Excel template |
+| [`docs/known-limitations.md`](../docs/known-limitations.md) | Pilot notes (no accuracy claims) |
+| [`docs/implementation-plan.md`](../docs/implementation-plan.md) | Architecture + phase status |
 
 ## Quick start (deploy host with Docker)
 
@@ -44,16 +55,26 @@ curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/projects/$PROJECT_ID/jobs"
 # open $BASE/ui and $BASE/ui/references
 ```
 
-### Checklist + human review + export (Phases 4–6)
+### Checklist registry + human review + export (Phases 4–7)
 
 ```bash
-# Seed catalogs (safe to repeat)
+# Registry (seedable scaffolds + awaiting_template slots; claimed_production_template_count=0)
+curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/checklists/registry"
+
+# Seed all seedable catalogs (safe to repeat)
+curl -sS -X POST -H "X-API-Token: $TOKEN" \
+  "$BASE/api/v1/checklists/seed-all"
+# or individually:
 curl -sS -X POST -H "X-API-Token: $TOKEN" \
   "$BASE/api/v1/checklists/seed/software-code-standard"
 curl -sS -X POST -H "X-API-Token: $TOKEN" \
   "$BASE/api/v1/checklists/seed/data-icd"
 curl -sS -X POST -H "X-API-Token: $TOKEN" \
   "$BASE/api/v1/checklists/seed/seci"
+curl -sS -X POST -H "X-API-Token: $TOKEN" \
+  "$BASE/api/v1/checklists/seed/requirements-traceability"
+curl -sS -X POST -H "X-API-Token: $TOKEN" \
+  "$BASE/api/v1/checklists/seed/configuration-management"
 
 # Start evaluation job (after document extracted/indexed)
 curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \

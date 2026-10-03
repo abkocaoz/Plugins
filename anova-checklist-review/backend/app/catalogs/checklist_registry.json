@@ -1,0 +1,112 @@
+{
+  "registry_version": "1.0.0",
+  "honesty": {
+    "claimed_production_template_count": 0,
+    "note": "No production Excel checklist workbooks were found in this repository. Do NOT claim that 21 (or any other count of) real templates exist as files here. Entries below are either implemented scaffolds with synthetic fixtures, thin representative scaffolds for the extension pattern, or empty registered slots awaiting a real template supply.",
+    "how_to_add_real_template": "See docs/checklist-onboarding.md"
+  },
+  "entries": [
+    {
+      "definition_key": "software_code_standard",
+      "title": "Software Code Standard",
+      "status": "scaffold_implemented",
+      "catalog_file": "software_code_standard_v1.json",
+      "synthetic_fixture": "fixtures/software_code_standard_synthetic_v1.xlsx",
+      "seedable": true,
+      "methods_focus": ["deterministic_rule", "document_content", "cross_document", "traceability", "manual_review"]
+    },
+    {
+      "definition_key": "data_icd",
+      "title": "DataICD",
+      "status": "scaffold_implemented",
+      "catalog_file": "data_icd_v1.json",
+      "synthetic_fixture": "fixtures/data_icd_synthetic_v1.xlsx",
+      "seedable": true,
+      "methods_focus": ["deterministic_rule", "manual_review"],
+      "notes": "Keeps Is Applicable separate from conformity Answer."
+    },
+    {
+      "definition_key": "seci",
+      "title": "SECI Cross-Document",
+      "status": "scaffold_implemented",
+      "catalog_file": "seci_v1.json",
+      "synthetic_fixture": "fixtures/seci_synthetic_v1.xlsx",
+      "seedable": true,
+      "methods_focus": ["cross_document", "traceability", "manual_review"]
+    },
+    {
+      "definition_key": "requirements_traceability",
+      "title": "Requirements Traceability",
+      "status": "representative_scaffold",
+      "catalog_file": "requirements_traceability_v1.json",
+      "synthetic_fixture": null,
+      "seedable": true,
+      "methods_focus": ["traceability", "manual_review"],
+      "notes": "Thin representative scaffold demonstrating onboarding without a production template."
+    },
+    {
+      "definition_key": "configuration_management",
+      "title": "Configuration Management",
+      "status": "representative_scaffold",
+      "catalog_file": "configuration_management_v1.json",
+      "synthetic_fixture": null,
+      "seedable": true,
+      "methods_focus": ["deterministic_rule", "manual_review"],
+      "notes": "Thin representative scaffold for CM checklist onboarding pattern."
+    },
+    {
+      "definition_key": "design_review",
+      "title": "Design Review",
+      "status": "awaiting_template",
+      "catalog_file": null,
+      "synthetic_fixture": null,
+      "seedable": false,
+      "notes": "Registered slot only — supply production .xlsx + catalog JSON to activate."
+    },
+    {
+      "definition_key": "test_evidence",
+      "title": "Test Evidence",
+      "status": "awaiting_template",
+      "catalog_file": null,
+      "synthetic_fixture": null,
+      "seedable": false,
+      "notes": "Registered slot only — not a fabricated full checklist."
+    },
+    {
+      "definition_key": "problem_reporting",
+      "title": "Problem Reporting",
+      "status": "awaiting_template",
+      "catalog_file": null,
+      "synthetic_fixture": null,
+      "seedable": false,
+      "notes": "Registered slot only."
+    },
+    {
+      "definition_key": "quality_assurance",
+      "title": "Quality Assurance",
+      "status": "awaiting_template",
+      "catalog_file": null,
+      "synthetic_fixture": null,
+      "seedable": false,
+      "notes": "Registered slot only."
+    },
+    {
+      "definition_key": "hw_sw_integration",
+      "title": "HW/SW Integration",
+      "status": "awaiting_template",
+      "catalog_file": null,
+      "synthetic_fixture": null,
+      "seedable": false,
+      "notes": "Registered slot only."
+    },
+    {
+      "definition_key": "safety_assessment",
+      "title": "Safety Assessment",
+      "status": "awaiting_template",
+      "catalog_file": null,
+      "synthetic_fixture": null,
+      "seedable": false,
+      "notes": "Registered slot only."
+    }
+  ]
+}
