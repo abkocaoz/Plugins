@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from app import __version__
 from app.api.routes_checklists import router as checklists_router
+from app.api.routes_demo import router as demo_router
 from app.api.routes_documents import router as documents_router
 from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
@@ -56,6 +57,7 @@ app.include_router(standards_router)
 app.include_router(jobs_router)
 app.include_router(references_router)
 app.include_router(checklists_router)
+app.include_router(demo_router)
 
 
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
@@ -77,22 +79,31 @@ _UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>ACR Phase 4 — upload hook</title>
+  <title>ACR — Live Demo upload</title>
   <style>
     body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.45}
     label{display:block;margin-top:.75rem;font-weight:600}
-    input,select,button{margin-top:.25rem;width:100%;padding:.5rem}
+    input,select,button{margin-top:.25rem;width:100%;padding:.5rem;box-sizing:border-box}
     button{cursor:pointer}
     pre{background:#f4f4f4;padding:1rem;overflow:auto}
     a{color:#0b5}
+    .demo{border:1px solid #9bb;background:#f0f7f8;padding:1rem;margin:1rem 0;border-radius:6px}
+    .demo button{background:#0b5;color:#fff;border:0;font-weight:700}
+    .muted{color:#555;font-size:.9rem}
   </style>
 </head>
 <body>
-  <h1>Anova Checklist Review — Phase 4</h1>
-  <p>Upload → extract → index → references → <strong>Software Code Standard checklist</strong>.
+  <h1>Anova Checklist Review — Live Demo</h1>
+  <p>Upload → extract → index (degraded without Qdrant) → references → checklist.
   <a href="/ui/references">Reference review</a> · <a href="/ui/checklist">Checklist results</a></p>
+  <div class="demo">
+    <strong>No-Docker Try Live</strong>
+    <p class="muted">Seeds project <code>live-demo</code>, Software Code Standard (+ DataICD/SECI if available), sample <code>.c</code> + DO-178C stub, and starts extract jobs. Prefills IDs below.</p>
+    <button id="demoStart" type="button">Start Live Demo</button>
+    <p id="demoHint" class="muted"></p>
+  </div>
   <label>API token <input id="token" value="dev-change-me"/></label>
-  <label>Project ID <input id="projectId" placeholder="uuid"/></label>
+  <label>Project ID <input id="projectId" placeholder="uuid — or click Start Live Demo"/></label>
   <label>Title <input id="title" placeholder="optional"/></label>
   <label>Doc type
     <select id="docType">
@@ -110,6 +121,38 @@ _UI_HTML = """<!doctype html>
   <h2>Response</h2>
   <pre id="out">{}</pre>
   <script>
+  const DEMO_KEY = 'acr_live_demo';
+  function saveDemo(d) { localStorage.setItem(DEMO_KEY, JSON.stringify(d)); }
+  function loadDemo() { try { return JSON.parse(localStorage.getItem(DEMO_KEY)||'null'); } catch { return null; } }
+  function applyDemo(d) {
+    if (!d) return;
+    if (d.project_id) document.getElementById('projectId').value = d.project_id;
+    if (d.api_token) document.getElementById('token').value = d.api_token;
+    if (d.standard_version_id) document.getElementById('stdVer').value = d.standard_version_id;
+    const hint = document.getElementById('demoHint');
+    hint.innerHTML = 'Seeded. Code version: <code>' + (d.code_document_version_id||'') +
+      '</code> · <a href="/ui/references?vid=' + encodeURIComponent(d.code_document_version_id||'') +
+      '">Open references</a> · <a href="/ui/checklist?pid=' + encodeURIComponent(d.project_id||'') +
+      '&vid=' + encodeURIComponent(d.code_document_version_id||'') + '">Open checklist</a>' +
+      '<br/>Wait ~15s after bootstrap for extract→index→reference jobs.';
+  }
+  applyDemo(loadDemo());
+  const params = new URLSearchParams(location.search);
+  if (params.get('pid')) document.getElementById('projectId').value = params.get('pid');
+  document.getElementById('demoStart').onclick = async () => {
+    const token = document.getElementById('token').value.trim() || 'dev-change-me';
+    document.getElementById('demoHint').textContent = 'Bootstrapping…';
+    const r = await fetch('/api/v1/demo/bootstrap', {
+      method: 'POST', headers: {'X-API-Token': token}
+    });
+    const text = await r.text();
+    let data;
+    try { data = JSON.parse(text); } catch { document.getElementById('out').textContent = text; return; }
+    document.getElementById('out').textContent = JSON.stringify(data, null, 2);
+    if (!r.ok) { document.getElementById('demoHint').textContent = 'Bootstrap failed'; return; }
+    saveDemo(data);
+    applyDemo(data);
+  };
   document.getElementById('go').onclick = async () => {
     const fd = new FormData();
     const f = document.getElementById('file').files[0];
@@ -162,9 +205,9 @@ _REF_UI_HTML = """<!doctype html>
   <h1>Reference review</h1>
   <p class="muted">Runs <em>before</em> checklist evaluation. Missing refs do not block independent checklist items.
   Selected standard versions are pinned on the review run.</p>
-  <p><a href="/ui">← Upload</a></p>
+  <p><a href="/ui">← Upload / Start Live Demo</a> · <a href="/ui/checklist">Checklist</a></p>
   <label>API token <input id="token" value="dev-change-me"/></label>
-  <label>Document version ID <input id="vid" placeholder="uuid"/></label>
+  <label>Document version ID <input id="vid" placeholder="uuid — prefilled from Live Demo"/></label>
   <button id="load">Load review</button>
   <button id="missing">List missing</button>
   <h2>Summary</h2>
@@ -172,6 +215,15 @@ _REF_UI_HTML = """<!doctype html>
   <h2>Items</h2>
   <div id="items"></div>
   <script>
+  (function prefills() {
+    try {
+      const d = JSON.parse(localStorage.getItem('acr_live_demo')||'null');
+      if (d && d.code_document_version_id) document.getElementById('vid').value = d.code_document_version_id;
+      if (d && d.api_token) document.getElementById('token').value = d.api_token;
+    } catch {}
+    const p = new URLSearchParams(location.search);
+    if (p.get('vid')) document.getElementById('vid').value = p.get('vid');
+  })();
   const token = () => document.getElementById('token').value.trim();
   const vid = () => document.getElementById('vid').value.trim();
   document.getElementById('load').onclick = async () => {
@@ -232,11 +284,11 @@ _CHECKLIST_UI_HTML = """<!doctype html>
 </head>
 <body>
   <h1>Software Code Standard — human review</h1>
-  <p class="muted">AI proposal is stored separately from reviewer_decisions / human_decision. Excel export fills a template copy (synthetic fixture until production templates are supplied).</p>
-  <p><a href="/ui">← Upload</a> · <a href="/ui/references">References</a></p>
+  <p class="muted">AI proposal is stored separately from reviewer_decisions / human_decision. Excel export fills a template copy (synthetic fixture until production templates are supplied). Without Ollama, document_content items may show ERROR; deterministic items still run.</p>
+  <p><a href="/ui">← Upload / Start Live Demo</a> · <a href="/ui/references">References</a></p>
   <label>API token <input id="token" value="dev-change-me"/></label>
-  <label>Project ID <input id="pid"/></label>
-  <label>Document version ID <input id="vid"/></label>
+  <label>Project ID <input id="pid" placeholder="prefilled from Live Demo"/></label>
+  <label>Document version ID <input id="vid" placeholder="prefilled from Live Demo"/></label>
   <label>Definition key
     <select id="dkey">
       <option value="software_code_standard">software_code_standard</option>
@@ -260,6 +312,20 @@ _CHECKLIST_UI_HTML = """<!doctype html>
   <pre id="out">{}</pre>
   <div id="items"></div>
   <script>
+  (function prefills() {
+    try {
+      const d = JSON.parse(localStorage.getItem('acr_live_demo')||'null');
+      if (d) {
+        if (d.project_id) document.getElementById('pid').value = d.project_id;
+        if (d.code_document_version_id) document.getElementById('vid').value = d.code_document_version_id;
+        if (d.api_token) document.getElementById('token').value = d.api_token;
+      }
+    } catch {}
+    const p = new URLSearchParams(location.search);
+    if (p.get('pid')) document.getElementById('pid').value = p.get('pid');
+    if (p.get('vid')) document.getElementById('vid').value = p.get('vid');
+    if (p.get('rid')) document.getElementById('rid').value = p.get('rid');
+  })();
   const token = () => document.getElementById('token').value.trim();
   const headers = () => ({'X-API-Token': token(), 'Content-Type': 'application/json'});
   document.getElementById('registry').onclick = async () => {
@@ -286,7 +352,19 @@ _CHECKLIST_UI_HTML = """<!doctype html>
     const r = await fetch('/api/v1/projects/' + pid + '/checklist-runs', {
       method:'POST', headers: headers(), body: JSON.stringify(body)
     });
-    document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+    const started = await r.json();
+    document.getElementById('out').textContent = JSON.stringify(started, null, 2);
+    const jobId = started && started.id;
+    if (!jobId) return;
+    for (let i = 0; i < 20; i++) {
+      await new Promise(res => setTimeout(res, 1000));
+      const jr = await fetch('/api/v1/jobs/' + jobId, {headers: {'X-API-Token': token()}});
+      const job = await jr.json();
+      document.getElementById('out').textContent = JSON.stringify(job, null, 2);
+      const rid = job && job.result && job.result.checklist_run_id;
+      if (rid) document.getElementById('rid').value = rid;
+      if (job.status === 'succeeded' || job.status === 'failed') break;
+    }
   };
   async function startExport(mode) {
     const rid = document.getElementById('rid').value.trim();

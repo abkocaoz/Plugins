@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     chunk_size_chars: int = 1200
     chunk_overlap_chars: int = 150
 
+    # No-Docker / Try Live demo: skip Qdrant+embedding upserts; continue extract→refs→checklist.
+    demo_mode: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

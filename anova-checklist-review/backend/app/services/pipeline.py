@@ -204,28 +204,40 @@ async def run_index_document(
         chunk_size=settings.chunk_size_chars,
         overlap=settings.chunk_overlap_chars,
     )
-    async with EmbeddingClient(settings) as emb:
-        embeddings = await emb.embed([c.text for c in chunks])
+    count = 0
+    index_status = "ok"
+    index_note = None
+    try:
+        if settings.demo_mode:
+            raise RuntimeError("demo_mode: skipping remote embedding/Qdrant upsert")
+        async with EmbeddingClient(settings) as emb:
+            embeddings = await emb.embed([c.text for c in chunks])
 
-    indexer = QdrantIndexer(settings)
-    count = indexer.upsert_project_document_chunks(
-        project_id=document.project_id,
-        document_id=document.id,
-        document_version_id=version.id,
-        doc_type=document.doc_type,
-        version_label=version.version_label,
-        content_sha256=version.content_sha256,
-        chunks=chunks,
-        embeddings=embeddings,
-    )
+        indexer = QdrantIndexer(settings)
+        count = indexer.upsert_project_document_chunks(
+            project_id=document.project_id,
+            document_id=document.id,
+            document_version_id=version.id,
+            doc_type=document.doc_type,
+            version_label=version.version_label,
+            content_sha256=version.content_sha256,
+            chunks=chunks,
+            embeddings=embeddings,
+        )
+    except Exception as exc:  # noqa: BLE001 — degrade for demo / missing remotes
+        logger.warning("index_document degraded for %s: %s", version.id, exc)
+        index_status = "skipped_unavailable"
+        index_note = str(exc)
+        count = len(chunks)
 
     meta = dict(version.meta or {})
     meta["indexing"] = {
-        "status": "ok",
+        "status": index_status,
         "collection": settings.qdrant_collection_project_docs,
         "chunk_count": count,
         "content_sha256": version.content_sha256,
         "indexed_at": datetime.now(timezone.utc).isoformat(),
+        "note": index_note,
     }
     version.meta = meta
     flag_modified(version, "meta")
@@ -234,6 +246,7 @@ async def run_index_document(
     return {
         "chunk_count": count,
         "collection": settings.qdrant_collection_project_docs,
+        "indexing_status": index_status,
         "reference_resolution_job_id": str(ref_job.id),
     }
 
@@ -267,29 +280,41 @@ async def run_index_standard(
         chunk_size=settings.chunk_size_chars,
         overlap=settings.chunk_overlap_chars,
     )
-    async with EmbeddingClient(settings) as emb:
-        embeddings = await emb.embed([c.text for c in chunks])
+    count = 0
+    index_status = "ok"
+    index_note = None
+    try:
+        if settings.demo_mode:
+            raise RuntimeError("demo_mode: skipping remote embedding/Qdrant upsert")
+        async with EmbeddingClient(settings) as emb:
+            embeddings = await emb.embed([c.text for c in chunks])
 
-    indexer = QdrantIndexer(settings)
-    count = indexer.upsert_standard_chunks(
-        standard_id=standard.id,
-        standard_version_id=std_version.id,
-        document_version_id=version.id,
-        canonical_key=standard.canonical_key,
-        version_label=std_version.version_label,
-        content_sha256=version.content_sha256,
-        chunks=chunks,
-        embeddings=embeddings,
-    )
+        indexer = QdrantIndexer(settings)
+        count = indexer.upsert_standard_chunks(
+            standard_id=standard.id,
+            standard_version_id=std_version.id,
+            document_version_id=version.id,
+            canonical_key=standard.canonical_key,
+            version_label=std_version.version_label,
+            content_sha256=version.content_sha256,
+            chunks=chunks,
+            embeddings=embeddings,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("index_standard degraded for %s: %s", version.id, exc)
+        index_status = "skipped_unavailable"
+        index_note = str(exc)
+        count = len(chunks)
 
     meta = dict(version.meta or {})
     meta["indexing"] = {
-        "status": "ok",
+        "status": index_status,
         "collection": settings.qdrant_collection_standards,
         "chunk_count": count,
         "standard_version_id": str(std_version.id),
         "content_sha256": version.content_sha256,
         "indexed_at": datetime.now(timezone.utc).isoformat(),
+        "note": index_note,
     }
     version.meta = meta
     flag_modified(version, "meta")
@@ -304,6 +329,7 @@ async def run_index_standard(
     return {
         "chunk_count": count,
         "collection": settings.qdrant_collection_standards,
+        "indexing_status": index_status,
         "affected_reference_jobs": affected,
     }
 
@@ -400,9 +426,9 @@ async def run_reference_resolution(
     if document is None:
         raise RuntimeError("document missing")
 
-    # Respect indexing dependency
+    # Indexing must have finished; demo_mode / missing remotes use skipped_unavailable.
     indexing = (version.meta or {}).get("indexing") or {}
-    if indexing.get("status") != "ok":
+    if indexing.get("status") not in {"ok", "skipped_unavailable"}:
         raise RuntimeError("reference_resolution requires successful indexing first")
 
     units, raw = await _load_extraction_units(version)

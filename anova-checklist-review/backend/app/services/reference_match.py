@@ -294,6 +294,8 @@ async def fetch_semantic_candidates(
     """Optional Qdrant lookup — advisory only. Failures yield empty list."""
     if not ref.raw_text:
         return []
+    if settings.demo_mode:
+        return []
     try:
         from qdrant_client import QdrantClient
         from qdrant_client.http import models as qm
