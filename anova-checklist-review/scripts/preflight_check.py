@@ -218,6 +218,7 @@ def main() -> int:
         else:
             print("SKIP docker checks (--skip-docker)")
     except PreflightError as exc:
+        sys.stdout.flush()
         print(f"PREFLIGHT FAILED: {exc}", file=sys.stderr)
         return 1
 

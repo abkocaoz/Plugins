@@ -38,3 +38,18 @@
 - VBA / macro-heavy `.xlsm` features are not executed; prefer openpyxl-safe templates.
 - Cross-document SECI quality depends on pinned peers and extractable units.
 - Concurrent Ollama calls capped at 1.
+
+## Environment check (agent VM, 2026-10-03)
+
+Attempted on the cloud agent host — **not** a fake pass:
+
+| Check | Result |
+|---|---|
+| Real production `.xlsx` templates in repo / siblings | **None** (only synthetic fixtures under `backend/app/catalogs/fixtures/`) |
+| `docker` on PATH | **Absent** (`command -v docker` empty) |
+| `./scripts/smoke_pilot.sh` | **Failed** immediately: `SMOKE FAILED: Docker is not installed or not on PATH` (exit 2) |
+| `python3 scripts/preflight_check.py` | **Failed**: insufficient available RAM (~4.9 GiB &lt; 8.0 GiB default gate); Docker check not reached |
+| PR review comments | None |
+| GitHub Actions before this wave | No workflows / no checks on the PR branch |
+
+Deploy smoke must be re-run on a Docker host with ≥8 GiB free RAM (or lowered `PREFLIGHT_MIN_RAM_GB` only if you accept the risk). Use `./scripts/smoke_pilot.sh`.

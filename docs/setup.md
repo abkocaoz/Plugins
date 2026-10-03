@@ -1,13 +1,25 @@
 # Setup (v1)
 
-Deploy host with Docker Engine + Compose v2.
+Deploy host with **Docker Engine + Compose v2**. Agent/CI VMs without Docker cannot complete the compose smoke — that is expected, not a fake pass.
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| Docker Engine + `docker compose` plugin | Preflight fails if missing |
+| Free RAM ≥ `PREFLIGHT_MIN_RAM_GB` (default **8**) | Preflight refuses to proceed |
+| Free disk ≥ `PREFLIGHT_MIN_DISK_GB` (default **20**) | Preflight refuses to proceed |
+| Free gateway port | Default `127.0.0.1:18080` |
 
 ## 1. Clone and configure
 
 ```bash
 cd anova-checklist-review
 cp .env.example .env
-# Edit secrets: POSTGRES_PASSWORD, DEV_API_TOKEN, GATEWAY_HOST_PORT if 18080 is busy
+# Required edits before real deploy:
+#   POSTGRES_PASSWORD, DEV_API_TOKEN
+#   GATEWAY_HOST_PORT if 18080 is busy
+# Optional: OLLAMA_LLM_MODEL, EMBEDDING_LOAD_MODEL=1 (see model-prep.md)
 ```
 
 ## 2. Preflight (required)
@@ -16,12 +28,25 @@ cp .env.example .env
 python3 scripts/preflight_check.py
 ```
 
-Fails clearly on: busy gateway port, missing Docker, low RAM/disk, Compose isolation violations.
+Fails clearly on: missing Docker, busy gateway port, low RAM/disk, Compose isolation violations.
 
-## 3. Start stack
+Unit-test / no-Docker hosts only:
+
+```bash
+python3 scripts/preflight_check.py --skip-docker
+```
+
+## 3. Start stack **or** one-shot smoke
 
 ```bash
 docker compose -p anova-checklist-review up -d --build
+```
+
+Or the scripted minimal path (preflight → up → `/health` → seed → upload → poll jobs):
+
+```bash
+./scripts/smoke_pilot.sh
+# TOKEN / BASE env vars optional; defaults match .env.example
 ```
 
 Isolation rules (must hold):
@@ -31,22 +56,30 @@ Isolation rules (must hold):
 - Only **gateway** publishes a host port (`GATEWAY_BIND`:`GATEWAY_HOST_PORT`)
 - Postgres, Qdrant, Ollama, embedding stay internal
 
-## 4. Smoke
+## 4. Manual smoke checks
 
 ```bash
-curl -sS http://127.0.0.1:18080/health
-# API token from .env
-curl -sS -H "X-API-Token: $TOKEN" http://127.0.0.1:18080/api/v1/checklists/registry
+TOKEN=dev-change-me   # must match DEV_API_TOKEN in .env
+BASE=http://127.0.0.1:18080
+
+curl -sS "$BASE/health"
+curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/checklists/registry"
+# ready (API via gateway) — path depends on nginx; also try:
+curl -sS "$BASE/ready" || true
 ```
 
 ## 5. Seed checklist catalogs
 
 ```bash
 curl -sS -X POST -H "X-API-Token: $TOKEN" \
-  http://127.0.0.1:18080/api/v1/checklists/seed-all
+  "$BASE/api/v1/checklists/seed-all"
 ```
 
-See also: [model-prep.md](model-prep.md), [backup-restore.md](backup-restore.md), [checklist-onboarding.md](checklist-onboarding.md), [known-limitations.md](known-limitations.md).
+Production Excel templates are **not** shipped. Registry stays at
+`claimed_production_template_count=0` until you onboard real workbooks
+([checklist-onboarding.md](checklist-onboarding.md)).
+
+See also: [model-prep.md](model-prep.md), [backup-restore.md](backup-restore.md), [known-limitations.md](known-limitations.md).
 
 Maintenance must stay scoped:
 

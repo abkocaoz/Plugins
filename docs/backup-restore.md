@@ -4,14 +4,16 @@ Scope all commands to Compose project `anova-checklist-review`. Do not touch oth
 
 ## What to back up
 
-| Store | Compose volume (default) | Contents |
+| Store | Compose volume (default name) | Contents |
 |---|---|---|
 | Postgres | `anova-checklist-review_acr_pg_data` | Projects, jobs, answers, reviews, exports metadata |
-| Uploads | `anova-checklist-review_acr_app_uploads` | Original document bytes |
-| Exports | `anova-checklist-review_acr_app_exports` | Filled Excel export files |
+| Uploads | `anova-checklist-review_acr_app_uploads` | Original document bytes (`UPLOAD_DIR=/data/uploads`) |
+| Exports | `anova-checklist-review_acr_app_exports` | Filled Excel exports (`EXPORT_DIR=/data/exports`) |
 | Qdrant | `anova-checklist-review_acr_qdrant_data` | Vector indexes (`standards_bgem3_v1`, `project_documents_bgem3_v1`) |
+| Ollama (optional) | `anova-checklist-review_acr_ollama_data` | Pulled LLM weights (can re-`ollama pull`) |
+| Embedding cache (optional) | `anova-checklist-review_acr_embedding_cache` | BGE-M3 weights when `EMBEDDING_LOAD_MODEL=1` |
 
-Ollama model layers live in `anova-checklist-review_acr_ollama_data` (optional to back up; can re-pull).
+Volume names match `docker-compose.yml` (`volumes.*.name`). Always use `-p anova-checklist-review`.
 
 ## Backup (example)
 

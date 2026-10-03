@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phases 1–7 complete for this delivery wave (foundation → registry/onboarding + ops docs). Production Excel templates still must be supplied.
+**Status:** Phases 1–7 complete for this delivery wave; post-wave pilot hardening in progress (CI workflow, smoke script, honest env-failure notes). Production Excel templates still must be supplied; compose smoke needs a Docker host.
 
 ---
 

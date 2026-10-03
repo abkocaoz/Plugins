@@ -23,12 +23,16 @@ Catalogs are versioned JSON scaffolds driven by `backend/app/catalogs/checklist_
 
 ## Quick start (deploy host with Docker)
 
+Requires Docker Engine + Compose v2 and enough free RAM/disk for preflight (defaults 8 GiB / 20 GiB). Agent VMs without Docker cannot complete this path.
+
 ```bash
 cd anova-checklist-review
 cp .env.example .env
-# edit secrets + GATEWAY_HOST_PORT after checking availability
+# edit POSTGRES_PASSWORD, DEV_API_TOKEN, GATEWAY_HOST_PORT if needed
 python3 scripts/preflight_check.py
-docker compose -p anova-checklist-review up -d --build
+# one-shot minimal smoke (health → seed → upload → jobs), or up manually:
+./scripts/smoke_pilot.sh
+# docker compose -p anova-checklist-review up -d --build
 ```
 
 Exercise upload → extract → index:

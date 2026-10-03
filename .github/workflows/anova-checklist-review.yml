@@ -1,0 +1,54 @@
+# Unit tests for anova-checklist-review (no Docker required).
+name: anova-checklist-review
+
+on:
+  push:
+    paths:
+      - "anova-checklist-review/**"
+      - "docs/**"
+      - ".github/workflows/anova-checklist-review.yml"
+  pull_request:
+    paths:
+      - "anova-checklist-review/**"
+      - "docs/**"
+      - ".github/workflows/anova-checklist-review.yml"
+
+jobs:
+  backend-unit:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: anova-checklist-review/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: anova-checklist-review/backend/requirements.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Pytest
+        env:
+          WORKER_ENABLED: "false"
+          AUTH_MODE: open
+          UPLOAD_DIR: /tmp/acr-test-uploads
+          EXPORT_DIR: /tmp/acr-test-exports
+        run: pytest -q
+      - name: Preflight isolation (skip docker)
+        working-directory: anova-checklist-review
+        env:
+          # CI runners vary; isolation file checks matter more than host RAM here
+          PREFLIGHT_MIN_RAM_GB: "1"
+          PREFLIGHT_MIN_DISK_GB: "1"
+        run: python3 scripts/preflight_check.py --skip-docker      - name: Registry honesty check
+        working-directory: anova-checklist-review/backend
+        run: |
+          python3 - <<'PY'
+          from app.services.checklist_catalog import registry_public_view
+          v = registry_public_view()
+          assert v["counts"]["claimed_production_template_count"] == 0
+          print("registry ok:", v["counts"])
+          PY
