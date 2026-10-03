@@ -196,6 +196,16 @@ class ExtractedReference(Base, TimestampMixin):
     context_span: Mapped[Optional[str]] = mapped_column(Text)
     locator: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     extraction_method: Mapped[str] = mapped_column(String(64), default="regex", nullable=False)
+    # Phase 3 structured fields — NULL when uncertain (never invented)
+    publisher_guess: Mapped[Optional[str]] = mapped_column(String(200))
+    supplement_guess: Mapped[Optional[str]] = mapped_column(String(120))
+    date_guess: Mapped[Optional[str]] = mapped_column(String(32))
+    section_kind: Mapped[Optional[str]] = mapped_column(String(64))
+    normalization_version: Mapped[Optional[str]] = mapped_column(String(64))
+    resolution_state: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    # pending | auto_selected | needs_user | user_selected | missing_source
+    selected_match_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True))
+    structured: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
 
 
 class ReferenceMatch(Base, TimestampMixin):
@@ -324,6 +334,8 @@ class Review(Base, TimestampMixin):
     created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL")
     )
+    # Phase 3: kind=reference_validation, pinned_standard_version_ids, document_version_id
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
 
 
 class ReviewItem(Base, TimestampMixin):

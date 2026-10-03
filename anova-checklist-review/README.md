@@ -4,9 +4,10 @@ Internal document-review + Excel checklist application.
 
 See [`../docs/implementation-plan.md`](../docs/implementation-plan.md) for architecture, phases, and isolation rules.
 
-## Current status: Phase 2
+## Current status: Phase 3
 
-Upload → extract → index pipeline with Postgres job leases, standard catalog APIs, and Qdrant hybrid indexing (dense 1024 + sparse) via a **separate** BGE-M3 embedding service.
+Upload → extract → index → **reference resolution / validation** (before checklist).
+Postgres job leases, standard catalog APIs, Qdrant hybrid indexing, and a reference review screen/API.
 
 ## Quick start (deploy host with Docker)
 
@@ -33,12 +34,27 @@ curl -sS -H "X-API-Token: $TOKEN" \
   -F "file=@./README.md" -F "doc_type=code" -F "version_label=1" \
   "$BASE/api/v1/projects/$PROJECT_ID/documents"
 
-# 3) Poll jobs
+# 3) Poll jobs (extract → index → reference_resolution → reference_validation)
 curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/projects/$PROJECT_ID/jobs"
 
-# 4) Or use minimal UI hook
-# open $BASE/ui
+# 4) After jobs succeed, open reference review (VERSION_ID from upload response)
+# curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/document-versions/$VERSION_ID/reference-review"
+# curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/document-versions/$VERSION_ID/missing-references"
+# open $BASE/ui and $BASE/ui/references
 ```
+
+### Missing source upload (content identity)
+
+```bash
+curl -sS -H "X-API-Token: $TOKEN" \
+  -F "file=@./DO178C.pdf" -F "doc_type=standard" -F "version_label=B" \
+  -F "standard_version_id=$STD_VER_ID" \
+  -F "expected_doc_id=DO-178C" \
+  -F "fills_missing_reference_id=$EXTRACTED_REF_ID" \
+  "$BASE/api/v1/projects/$PROJECT_ID/documents"
+```
+
+Filename is ignored for identity; content must confirm `expected_doc_id`.
 
 Standard catalog example:
 

@@ -33,10 +33,16 @@ async def upload_document(
     version_label: str = Form(default="1"),
     document_id: uuid.UUID | None = Form(default=None),
     standard_version_id: uuid.UUID | None = Form(default=None),
+    expected_doc_id: str | None = Form(default=None),
+    fills_missing_reference_id: uuid.UUID | None = Form(default=None),
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> UploadResponse:
-    """Upload original file. Creates a new document or a new revision of an existing one."""
+    """Upload original file. Creates a new document or a new revision of an existing one.
+
+    For missing-source uploads, pass expected_doc_id and/or fills_missing_reference_id.
+    Identity is verified from file *content*, not the filename.
+    """
     project = await db.get(Project, project_id)
     if not project:
         raise HTTPException(status_code=404, detail="project not found")
@@ -47,6 +53,35 @@ async def upload_document(
 
     filename = file.filename or "upload.bin"
     mime = file.content_type or mimetypes.guess_type(filename)[0]
+
+    identity_meta = None
+    if expected_doc_id or fills_missing_reference_id or doc_type == "standard":
+        from app.models.entities import ExtractedReference
+        from app.services.identity_verify import verify_upload_identity
+
+        exp = expected_doc_id
+        if fills_missing_reference_id and not exp:
+            eref = await db.get(ExtractedReference, fills_missing_reference_id)
+            if eref:
+                exp = eref.doc_id_guess
+        if exp:
+            verdict = verify_upload_identity(data, filename, mime, expected_doc_id=exp)
+            identity_meta = {
+                "ok": verdict.ok,
+                "expected_doc_id": verdict.expected_doc_id,
+                "found_doc_ids": verdict.found_doc_ids,
+                "found_titles": verdict.found_titles,
+                "explanation": verdict.explanation,
+            }
+            if not verdict.ok:
+                raise HTTPException(
+                    status_code=422,
+                    detail={
+                        "error": "identity_verification_failed",
+                        "message": verdict.explanation,
+                        "identity": identity_meta,
+                    },
+                )
 
     if document_id is not None:
         document = await db.get(Document, document_id)
@@ -87,6 +122,10 @@ async def upload_document(
         meta={
             "original_filename": filename,
             "standard_version_id": str(standard_version_id) if standard_version_id else None,
+            "fills_missing_reference_id": str(fills_missing_reference_id)
+            if fills_missing_reference_id
+            else None,
+            "identity_verification": identity_meta,
         },
     )
     db.add(version)

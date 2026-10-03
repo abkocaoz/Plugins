@@ -17,11 +17,13 @@ from app.services.pipeline import process_job
 
 logger = logging.getLogger(__name__)
 
-PHASE2_JOB_TYPES = [
+WORKER_JOB_TYPES = [
     JobType.EXTRACT_DOCUMENT.value,
     JobType.INDEX_DOCUMENT.value,
     JobType.INDEX_STANDARD.value,
     JobType.REINDEX_PROJECT.value,
+    JobType.REFERENCE_RESOLUTION.value,
+    JobType.REFERENCE_VALIDATION.value,
 ]
 
 
@@ -58,7 +60,7 @@ async def _claim_and_run(settings: Settings, owner: str) -> bool:
             session,
             owner=owner,
             lease_seconds=settings.worker_lease_seconds,
-            job_types=PHASE2_JOB_TYPES,
+            job_types=WORKER_JOB_TYPES,
         )
         if job is None:
             await session.commit()

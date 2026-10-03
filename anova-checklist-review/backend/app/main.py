@@ -13,6 +13,7 @@ from app.api.routes_documents import router as documents_router
 from app.api.routes_health import router as health_router
 from app.api.routes_jobs import router as jobs_router
 from app.api.routes_projects import router as projects_router
+from app.api.routes_references import router as references_router
 from app.api.routes_standards import router as standards_router
 from app.core.config import get_settings
 from app.workers.runner import worker_loop
@@ -43,7 +44,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=__version__,
-    description="Document review + Excel checklist engine (Phase 2: upload/extract/index)",
+    description="Document review + Excel checklist engine (Phase 3: reference validation)",
     lifespan=lifespan,
 )
 
@@ -52,27 +53,37 @@ app.include_router(projects_router)
 app.include_router(documents_router)
 app.include_router(standards_router)
 app.include_router(jobs_router)
+app.include_router(references_router)
 
 
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
 async def minimal_upload_ui() -> str:
-    """Minimal hook to exercise upload → extract → index without a full SPA."""
-    return """<!doctype html>
+    return _UI_HTML
+
+
+@app.get("/ui/references", response_class=HTMLResponse, include_in_schema=False)
+async def reference_review_ui() -> str:
+    return _REF_UI_HTML
+
+
+_UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>ACR Phase 2 — upload hook</title>
+  <title>ACR Phase 3 — upload hook</title>
   <style>
     body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:720px;margin:2rem auto;padding:0 1rem;line-height:1.45}
     label{display:block;margin-top:.75rem;font-weight:600}
     input,select,button{margin-top:.25rem;width:100%;padding:.5rem}
     button{cursor:pointer}
     pre{background:#f4f4f4;padding:1rem;overflow:auto}
+    a{color:#0b5}
   </style>
 </head>
 <body>
-  <h1>Anova Checklist Review — Phase 2</h1>
-  <p>Minimal upload hook. Create a project via API first, then upload here.</p>
+  <h1>Anova Checklist Review — Phase 3</h1>
+  <p>Upload → extract → index → <strong>reference resolution/validation</strong>.
+  <a href="/ui/references">Reference review screen</a></p>
   <label>API token <input id="token" value="dev-change-me"/></label>
   <label>Project ID <input id="projectId" placeholder="uuid"/></label>
   <label>Title <input id="title" placeholder="optional"/></label>
@@ -85,6 +96,8 @@ async def minimal_upload_ui() -> str:
   </label>
   <label>Revision / version label <input id="version" value="1"/></label>
   <label>Standard version ID (for standards) <input id="stdVer" placeholder="optional uuid"/></label>
+  <label>Expected doc id (missing-source verify) <input id="expId" placeholder="e.g. DO-178C"/></label>
+  <label>Fills missing reference id <input id="missRef" placeholder="optional extracted_reference uuid"/></label>
   <label>File <input id="file" type="file"/></label>
   <button id="go">Upload</button>
   <h2>Response</h2>
@@ -101,6 +114,10 @@ async def minimal_upload_ui() -> str:
     fd.append('version_label', document.getElementById('version').value);
     const std = document.getElementById('stdVer').value;
     if (std) fd.append('standard_version_id', std);
+    const exp = document.getElementById('expId').value;
+    if (exp) fd.append('expected_doc_id', exp);
+    const miss = document.getElementById('missRef').value;
+    if (miss) fd.append('fills_missing_reference_id', miss);
     const pid = document.getElementById('projectId').value.trim();
     const token = document.getElementById('token').value.trim();
     const r = await fetch('/api/v1/projects/' + pid + '/documents', {
@@ -111,6 +128,76 @@ async def minimal_upload_ui() -> str:
     const text = await r.text();
     try { document.getElementById('out').textContent = JSON.stringify(JSON.parse(text), null, 2); }
     catch { document.getElementById('out').textContent = text; }
+  };
+  </script>
+</body>
+</html>"""
+
+
+_REF_UI_HTML = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>ACR — Reference review</title>
+  <style>
+    body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:960px;margin:2rem auto;padding:0 1rem;line-height:1.4}
+    label{display:block;margin-top:.6rem;font-weight:600}
+    input,button{margin-top:.25rem;padding:.5rem}
+    input{width:100%}
+    button{cursor:pointer}
+    .card{border:1px solid #ddd;padding:0.75rem 1rem;margin:0.75rem 0;border-radius:6px}
+    .status{font-weight:700}
+    pre{background:#f6f6f6;padding:.5rem;overflow:auto;white-space:pre-wrap}
+    .muted{color:#666;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <h1>Reference review</h1>
+  <p class="muted">Runs <em>before</em> checklist evaluation. Missing refs do not block independent checklist items.
+  Selected standard versions are pinned on the review run.</p>
+  <p><a href="/ui">← Upload</a></p>
+  <label>API token <input id="token" value="dev-change-me"/></label>
+  <label>Document version ID <input id="vid" placeholder="uuid"/></label>
+  <button id="load">Load review</button>
+  <button id="missing">List missing</button>
+  <h2>Summary</h2>
+  <pre id="sum">{}</pre>
+  <h2>Items</h2>
+  <div id="items"></div>
+  <script>
+  const token = () => document.getElementById('token').value.trim();
+  const vid = () => document.getElementById('vid').value.trim();
+  document.getElementById('load').onclick = async () => {
+    const r = await fetch('/api/v1/document-versions/' + vid() + '/reference-review', {
+      headers: {'X-API-Token': token()}
+    });
+    const data = await r.json();
+    document.getElementById('sum').textContent = JSON.stringify({
+      review_id: data.review_id,
+      status: data.status,
+      pinned_standard_version_ids: data.pinned_standard_version_ids,
+      blocks_independent_checklist: data.blocks_independent_checklist,
+      summary: data.summary
+    }, null, 2);
+    const root = document.getElementById('items');
+    root.innerHTML = '';
+    (data.items || []).forEach(it => {
+      const d = document.createElement('div');
+      d.className = 'card';
+      d.innerHTML = '<div class="status">' + (it.finding && it.finding.status) +
+        ' · ' + (it.finding && it.finding.check_type) + '</div>' +
+        '<div>' + (it.finding && it.finding.message) + '</div>' +
+        '<div class="muted">' + (it.reference && it.reference.raw_text) +
+        ' @ ' + JSON.stringify(it.reference && it.reference.locator) + '</div>' +
+        '<pre>' + JSON.stringify(it.finding && it.finding.details, null, 2) + '</pre>';
+      root.appendChild(d);
+    });
+  };
+  document.getElementById('missing').onclick = async () => {
+    const r = await fetch('/api/v1/document-versions/' + vid() + '/missing-references', {
+      headers: {'X-API-Token': token()}
+    });
+    document.getElementById('sum').textContent = JSON.stringify(await r.json(), null, 2);
   };
   </script>
 </body>

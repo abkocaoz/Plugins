@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phase 2 (upload → extract → index) implemented on branch; Phase 3+ not started
+**Status:** Phase 3 (reference extract/match/validation) implemented on branch; Phase 4+ not started
 
 ---
 
@@ -203,13 +203,33 @@ Landed in `anova-checklist-review/`:
 - Auth remains `dev` token / `open` for tests
 - DOC (legacy `.doc`) / PPT not supported
 
-### Phase 3 — Reference extract / match / validation UI *(plan only)*
+### Phase 3 — Reference extract / match / validation (**implemented**)
 
-- Extraction + normalization rules (doc IDs, revisions, clauses, titles)
-- Hybrid retrieval + deterministic metadata match
-- Missing-source upload flow
-- Validation UI **before** checklist evaluation
-- Statuses listed in §3; missing refs do not block independent checklist items
+| Area | What |
+|---|---|
+| Extraction | References/Applicable Documents sections + body citations; table/footnote/header/footer kinds; OCR/unreadable gaps recorded |
+| Structured records | `extracted_references` fields (id/title/rev/supplement/publisher/date/clause/section/normalization_version); uncertain → NULL (never invented) |
+| Normalization | Versioned `refnorm-v3.1`; revision ≠ supplement preserved; alias table used in matching |
+| Auto-match priority | id+revision → id+supplement → id+publisher+title → semantic **candidates only**; never auto-pick by embedding alone |
+| Unspecified revision | Project approved set as candidates; `VERSION_UNSPECIFIED`; user must choose — never silent latest |
+| Missing source | `GET …/missing-references`; upload with `expected_doc_id` verifies **content** not filename; index then re-resolve affected refs only |
+| Validation | bibliographic / consistency / clause / applicability → distinct statuses + findings (location, selected source/version, clause/quote, explanation, non-mutating suggested_fix) |
+| Review | `GET …/reference-review` + `/ui/references` before checklist; `blocks_independent_checklist=false`; pinned `standard_version_ids` on review.meta |
+| Jobs | `reference_resolution` (after indexing) → `reference_validation`; select-match requeues partial validation |
+
+**Acceptance (Phase 3):**
+
+- [x] Reference extraction with locators + gap codes
+- [x] Structured fields without inventing uncertain data
+- [x] Versioned normalization + alias-aware match
+- [x] Match priority + no embedding-only auto-select
+- [x] Unspecified revision asks user
+- [x] Missing-source list + content identity verify
+- [x] Validation findings with suggested_fix.auto_apply=false
+- [x] Reference review API/UI hook before checklist
+- [x] Job stages wired after index
+- [x] Unit tests for normalize/match/extract/validate/identity
+- [ ] Live Compose e2e — still needs Docker host
 
 ### Phase 4 — Software Code Standard checklist *(plan only)*
 
