@@ -1,0 +1,143 @@
+# Compose project name MUST be: anova-checklist-review
+# Isolation: dedicated network + named volumes; no container_name; no host network.
+# Only gateway publishes a host port (GATEWAY_HOST_PORT). Other services are internal.
+
+name: anova-checklist-review
+
+services:
+  gateway:
+    image: nginx:1.27.5-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${GATEWAY_BIND:-127.0.0.1}:${GATEWAY_HOST_PORT:-18080}:80"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - acr_net
+    mem_limit: ${GATEWAY_MEM_LIMIT:-128m}
+    cpus: ${GATEWAY_CPU_LIMIT:-0.25}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_SYNC: ${DATABASE_URL_SYNC}
+      QDRANT_URL: ${QDRANT_URL}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL}
+      EMBEDDING_URL: ${EMBEDDING_URL}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
+      EXPORT_DIR: ${EXPORT_DIR:-/data/exports}
+      OLLAMA_MAX_CONCURRENCY: ${OLLAMA_MAX_CONCURRENCY:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    volumes:
+      - acr_app_uploads:/data/uploads
+      - acr_app_exports:/data/exports
+    networks:
+      - acr_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+    mem_limit: ${API_MEM_LIMIT:-1g}
+    cpus: ${API_CPU_LIMIT:-1.0}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    # No ports: published only via gateway
+
+  postgres:
+    image: postgres:16.15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-acr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-acr}
+    volumes:
+      - acr_pg_data:/var/lib/postgresql/data
+    networks:
+      - acr_net
+    mem_limit: ${POSTGRES_MEM_LIMIT:-1g}
+    cpus: ${POSTGRES_CPU_LIMIT:-1.0}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Intentionally NO ports: mapping — internal only
+
+  qdrant:
+    image: qdrant/qdrant:v1.19.1
+    restart: unless-stopped
+    volumes:
+      - acr_qdrant_data:/qdrant/storage
+    networks:
+      - acr_net
+    mem_limit: ${QDRANT_MEM_LIMIT:-1g}
+    cpus: ${QDRANT_CPU_LIMIT:-1.0}
+    # Intentionally NO ports: mapping — internal only
+
+  ollama:
+    image: ollama/ollama:0.35.1
+    restart: unless-stopped
+    volumes:
+      - acr_ollama_data:/root/.ollama
+    networks:
+      - acr_net
+    mem_limit: ${OLLAMA_MEM_LIMIT:-4g}
+    cpus: ${OLLAMA_CPU_LIMIT:-2.0}
+    # Intentionally NO ports: mapping — internal only
+    # GPU: not enabled by default; attach device_requests on a verified NVIDIA host only
+
+  embedding:
+    build:
+      context: ./embedding
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      EMBEDDING_MODEL_ID: ${EMBEDDING_MODEL_ID:-BAAI/bge-m3}
+      EMBEDDING_MODEL_REVISION: ${EMBEDDING_MODEL_REVISION:-}
+      EMBEDDING_DIM: ${EMBEDDING_DIM:-1024}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
+    volumes:
+      - acr_embedding_cache:/models
+    networks:
+      - acr_net
+    mem_limit: ${EMBEDDING_MEM_LIMIT:-4g}
+    cpus: ${EMBEDDING_CPU_LIMIT:-2.0}
+    # Intentionally NO ports: mapping — internal only
+
+networks:
+  acr_net:
+    driver: bridge
+    name: anova-checklist-review_acr_net
+
+volumes:
+  acr_pg_data:
+    name: anova-checklist-review_acr_pg_data
+  acr_qdrant_data:
+    name: anova-checklist-review_acr_qdrant_data
+  acr_ollama_data:
+    name: anova-checklist-review_acr_ollama_data
+  acr_embedding_cache:
+    name: anova-checklist-review_acr_embedding_cache
+  acr_app_uploads:
+    name: anova-checklist-review_acr_app_uploads
+  acr_app_exports:
+    name: anova-checklist-review_acr_app_exports

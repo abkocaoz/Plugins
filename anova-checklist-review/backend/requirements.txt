@@ -1,0 +1,15 @@
+# Pinned after PyPI verification (2026-10-03 agent environment). No floating latest.
+fastapi==0.115.14
+uvicorn[standard]==0.34.3
+pydantic==2.11.10
+pydantic-settings==2.9.1
+sqlalchemy==2.0.43
+alembic==1.15.2
+asyncpg==0.30.0
+psycopg2-binary==2.9.10
+httpx==0.28.1
+python-multipart==0.0.20
+openpyxl==3.1.5
+qdrant-client==1.14.3
+pytest==8.3.5
+pyyaml==6.0.2
