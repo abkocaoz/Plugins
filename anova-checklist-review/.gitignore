@@ -15,5 +15,6 @@ data/exports/*
 node_modules/
 frontend/dist/
 *.xlsx
-!~/templates/**
+!templates/excel/**/*.xlsx
+!backend/app/catalogs/fixtures/**/*.xlsx
 .DS_Store

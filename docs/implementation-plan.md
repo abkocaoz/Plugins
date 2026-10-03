@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phase 4 (Software Code Standard checklist engine) implemented on branch; Phase 5+ not started
+**Status:** Phase 5 (human review + Excel export) implemented on branch; Phase 6+ not started
 
 ---
 
@@ -244,7 +244,7 @@ Landed in `anova-checklist-review/`:
 | Missing refs | Independent items run; dependent → `INSUFFICIENT_EVIDENCE` with critical ref errors surfaced |
 | Pinning | `checklist_runs.meta.pinned_standard_version_ids` (+ document version) |
 | Jobs / storage | `checklist_review`; `checklist_answers` + `ai_proposal` separate from `human_decision`; `evidence_links` |
-| UI | `/ui/checklist` + `GET /checklist-runs/{id}/view` (Phase 5 approve/export stubs) |
+| UI | `/ui/checklist` + `GET /checklist-runs/{id}/view` |
 
 **Acceptance (Phase 4):**
 
@@ -256,11 +256,29 @@ Landed in `anova-checklist-review/`:
 - [x] Unit tests (YES/NO/NA/insufficient/fake evidence)
 - [ ] Live Ollama/Compose e2e — needs Docker host + Ollama model
 
-### Phase 5 — Human review + Excel export *(plan only)*
+### Phase 5 — Human review + Excel export (**implemented**)
 
-- Reviewer UI; decisions + audit
-- Template-preserving Excel write (`openpyxl` load + cell fill); add **Reference Validation** sheet without destroying template features
-- Download via `exports`
+| Area | What |
+|---|---|
+| Human review API | `POST /checklist-answers/{id}/decision` → `reviewer_decisions` (+ `review` / `review_items`); `ai_proposal` kept; `human_decision` / effective `state` updated; change rationale + audit |
+| Evidence + refs | Existing evidence endpoint; view includes evidence + related reference findings (compact); decisions list |
+| UI | `/ui/checklist` — accept/override/reject/defer, rationale, export draft / reviewer-approved |
+| Excel export | Job stage `export`; fills a **copy** of template; never mutates original; `GET /exports/{id}/download` |
+| Cell mapping | Explicit Answer/Chapter/Comment/References/Reviewed Item/Status; **no** Author’s Answer / Resolved SVN Revision; Status never auto-Closed from AI |
+| Blank answers | Yes/No/NA template: blank Answer for `INSUFFICIENT_EVIDENCE` / `MANUAL_REVIEW` / `ERROR`; explanation in Comment |
+| Reference sheet | Extra sheet **Reference Validation** (ref, stated version, selected source, result, location, explanation) — no long standard text |
+| Preservation | Merged cells, data validation dropdowns, formulas, print area, question order; formula-injection prefix on `=+/ -@` |
+| Template gap | Production `.xlsx` still absent; synthetic fixture `backend/app/catalogs/fixtures/software_code_standard_synthetic_v1.xlsx` for tests only (`claimed_template_file_count=0`) |
+| DataICD note | Future: keep applicability vs conformity separate (documented in catalog `template_gap.dataicd_note`) |
+
+**Acceptance (Phase 5):**
+
+- [x] Human decisions stored separately from `ai_proposal`
+- [x] Draft + reviewer-approved export modes via `export` job
+- [x] Explicit cell mapping; blank-on-insufficient; injection guard; preservation basics
+- [x] Synthetic fixture + honest template-gap docs (no claim of 21 real templates)
+- [x] Unit tests + plan/README update
+- [ ] Live Compose e2e download through gateway — needs Docker host
 
 ### Phase 6 — DataICD deterministic + SECI cross-doc *(plan only)*
 

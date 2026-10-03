@@ -36,4 +36,5 @@ def test_catalog_meta_endpoint():
     assert r.status_code == 200
     body = r.json()
     assert body["template_gap"]["claimed_template_file_count"] == 0
-    assert body["excel_template_path"] is None
+    assert body["template_gap"]["status"] == "synthetic_fixture_only"
+    assert body["excel_template_path"] == "fixtures/software_code_standard_synthetic_v1.xlsx"

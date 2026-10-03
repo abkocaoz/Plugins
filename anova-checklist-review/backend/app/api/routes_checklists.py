@@ -1,17 +1,20 @@
-"""Checklist catalog + evaluation APIs (Phase 4)."""
+"""Checklist catalog + evaluation + human review + Excel export APIs (Phases 4–5)."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_dev_token
+from app.core.config import get_settings
 from app.core.job_types import JobType
 from app.db.session import get_db
 from app.models.entities import (
@@ -22,10 +25,18 @@ from app.models.entities import (
     Document,
     DocumentVersion,
     EvidenceLink,
+    Export,
     Project,
+    ReviewerDecision,
 )
 from app.schemas.common import JobOut, ORMModel
 from app.services.checklist_catalog import load_catalog_file, seed_catalog
+from app.services.excel_export import resolve_template_path
+from app.services.human_review import (
+    list_decisions_for_answer,
+    record_human_decision,
+    related_reference_findings_for_answer,
+)
 from app.services.jobs import enqueue_job, make_idempotency_key
 
 router = APIRouter(prefix="/api/v1", tags=["checklists"], dependencies=[Depends(require_dev_token)])
@@ -100,6 +111,47 @@ class ChecklistRunOut(ORMModel):
     started_at: datetime | None
     finished_at: datetime | None
     meta: dict[str, Any]
+    created_at: datetime
+
+
+class HumanDecisionBody(BaseModel):
+    decision: Literal["accept", "reject", "override", "defer"]
+    override_state: str | None = None
+    change_rationale: str | None = None
+    chapter_text: str | None = None
+    comment_text: str | None = None
+    status_value: str | None = Field(
+        default=None,
+        description="Optional Status cell value; never auto-set to Closed from AI",
+    )
+    reviewed_item: str | None = None
+    reviewer_user_id: uuid.UUID | None = None
+
+
+class StartExportBody(BaseModel):
+    mode: Literal["draft", "reviewer_approved"] = "draft"
+
+
+class ExportOut(ORMModel):
+    id: uuid.UUID
+    project_id: uuid.UUID
+    checklist_run_id: uuid.UUID | None
+    review_id: uuid.UUID | None
+    storage_path: str
+    template_path: str | None
+    content_sha256: str | None
+    status: str
+    meta: dict[str, Any]
+    created_at: datetime
+
+
+class ReviewerDecisionOut(ORMModel):
+    id: uuid.UUID
+    review_item_id: uuid.UUID
+    reviewer_user_id: uuid.UUID | None
+    decision: str
+    override_state: str | None
+    comment: str | None
     created_at: datetime
 
 
@@ -245,7 +297,7 @@ async def list_answer_evidence(
 
 @router.get("/checklist-runs/{run_id}/view")
 async def run_view(run_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict[str, Any]:
-    """Minimal UI payload: item results + evidence (human approve/export = Phase 5 stubs)."""
+    """UI payload: item results, evidence, related ref findings, human decision + export hooks."""
     run = await db.get(ChecklistRun, run_id)
     if not run:
         raise HTTPException(status_code=404, detail="checklist run not found")
@@ -269,8 +321,12 @@ async def run_view(run_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dic
                 select(EvidenceLink).where(EvidenceLink.checklist_answer_id == ans.id)
             )
         ).all()
+        schema_cells = (item.schema_json or {}).get("excel_cells") if item else {}
+        decisions = await list_decisions_for_answer(db, ans.id)
+        ref_findings = await related_reference_findings_for_answer(db, ans)
         payload.append(
             {
+                "answer_id": str(ans.id),
                 "item_key": item.item_key if item else None,
                 "question": item.prompt if item else None,
                 "method": item.method if item else None,
@@ -281,24 +337,188 @@ async def run_view(run_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dic
                 "chapter_text": ans.chapter_text,
                 "comment_text": ans.comment_text,
                 "excel_cells": {
-                    "answer": ans.excel_answer_cell,
-                    "chapter": ans.excel_chapter_cell,
-                    "comment": ans.excel_comment_cell,
+                    "answer": ans.excel_answer_cell or (schema_cells or {}).get("answer"),
+                    "chapter": ans.excel_chapter_cell or (schema_cells or {}).get("chapter"),
+                    "comment": ans.excel_comment_cell or (schema_cells or {}).get("comment"),
+                    "references": (schema_cells or {}).get("references"),
+                    "reviewed_item": (schema_cells or {}).get("reviewed_item"),
+                    "status": (schema_cells or {}).get("status"),
                 },
                 "evidence": [
                     {"id": str(l.id), "quote": l.quote, "locator": l.locator} for l in links
                 ],
-                "phase5_hooks": {
-                    "human_approve": None,
-                    "excel_export": None,
-                    "note": "Human approve + Excel export land in Phase 5",
-                },
+                "related_reference_findings": ref_findings,
+                "reviewer_decisions": [
+                    ReviewerDecisionOut.model_validate(d).model_dump(mode="json")
+                    for d in decisions
+                ],
             }
         )
+    template_ok = False
+    template_error = None
+    if definition and definition.excel_template_path:
+        try:
+            resolve_template_path(definition)
+            template_ok = True
+        except FileNotFoundError as exc:
+            template_error = str(exc)
     return {
         "run": ChecklistRunOut.model_validate(run).model_dump(mode="json"),
         "definition_key": definition.key if definition else None,
         "template_gap": (definition.meta or {}).get("template_gap") if definition else None,
+        "cell_mapping": (definition.meta or {}).get("cell_mapping") if definition else None,
+        "excel_template_ready": template_ok,
+        "excel_template_error": template_error,
         "pinned_standard_version_ids": (run.meta or {}).get("pinned_standard_version_ids"),
         "items": payload,
     }
+
+
+@router.post("/checklist-answers/{answer_id}/decision")
+async def post_human_decision(
+    answer_id: uuid.UUID,
+    body: HumanDecisionBody,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Record a reviewer decision; ai_proposal remains untouched (extras on raw_model_output)."""
+    try:
+        result = await record_human_decision(
+            db,
+            answer_id=answer_id,
+            decision=body.decision,
+            override_state=body.override_state,
+            change_rationale=body.change_rationale,
+            chapter_text=body.chapter_text,
+            comment_text=body.comment_text,
+            status_value=body.status_value,
+            reviewed_item=body.reviewed_item,
+            reviewer_user_id=body.reviewer_user_id,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return result
+
+
+@router.get(
+    "/checklist-answers/{answer_id}/decisions",
+    response_model=list[ReviewerDecisionOut],
+)
+async def get_answer_decisions(
+    answer_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[ReviewerDecision]:
+    answer = await db.get(ChecklistAnswer, answer_id)
+    if not answer:
+        raise HTTPException(status_code=404, detail="answer not found")
+    return await list_decisions_for_answer(db, answer_id)
+
+
+@router.get("/checklist-answers/{answer_id}/reference-findings")
+async def get_answer_reference_findings(
+    answer_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[dict[str, Any]]:
+    answer = await db.get(ChecklistAnswer, answer_id)
+    if not answer:
+        raise HTTPException(status_code=404, detail="answer not found")
+    return await related_reference_findings_for_answer(db, answer)
+
+
+@router.post(
+    "/checklist-runs/{run_id}/export",
+    response_model=JobOut,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def start_export(
+    run_id: uuid.UUID,
+    body: StartExportBody,
+    db: AsyncSession = Depends(get_db),
+) -> Any:
+    """Enqueue export job — fills a copy of the template; never mutates the original."""
+    settings = get_settings()
+    run = await db.get(ChecklistRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="checklist run not found")
+    definition = await db.get(ChecklistDefinition, run.definition_id)
+    if not definition:
+        raise HTTPException(status_code=404, detail="checklist definition not found")
+    try:
+        template_path = resolve_template_path(definition)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    export_id = uuid.uuid4()
+    rel = f"{run.project_id}/{export_id}.xlsx"
+    storage_path = str(Path(settings.export_dir) / rel)
+    export = Export(
+        id=export_id,
+        project_id=run.project_id,
+        checklist_run_id=run.id,
+        storage_path=storage_path,
+        template_path=str(template_path),
+        status="pending",
+        meta={"mode": body.mode},
+    )
+    db.add(export)
+    await db.flush()
+
+    job = await enqueue_job(
+        db,
+        job_type=JobType.EXPORT,
+        payload={
+            "export_id": str(export.id),
+            "checklist_run_id": str(run.id),
+            "mode": body.mode,
+        },
+        project_id=run.project_id,
+        idempotency_key=make_idempotency_key(
+            JobType.EXPORT, run.id, body.mode, export.id
+        ),
+    )
+    await db.commit()
+    await db.refresh(job)
+    return job
+
+
+@router.get("/exports/{export_id}", response_model=ExportOut)
+async def get_export(export_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> Export:
+    export = await db.get(Export, export_id)
+    if not export:
+        raise HTTPException(status_code=404, detail="export not found")
+    return export
+
+
+@router.get("/checklist-runs/{run_id}/exports", response_model=list[ExportOut])
+async def list_run_exports(
+    run_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[Export]:
+    run = await db.get(ChecklistRun, run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="checklist run not found")
+    return list(
+        await db.scalars(
+            select(Export)
+            .where(Export.checklist_run_id == run_id)
+            .order_by(Export.created_at.desc())
+        )
+    )
+
+
+@router.get("/exports/{export_id}/download")
+async def download_export(
+    export_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> FileResponse:
+    export = await db.get(Export, export_id)
+    if not export:
+        raise HTTPException(status_code=404, detail="export not found")
+    if export.status != "ready":
+        raise HTTPException(status_code=409, detail=f"export not ready (status={export.status})")
+    path = Path(export.storage_path)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="export file missing on disk")
+    return FileResponse(
+        path,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename=f"checklist-export-{export_id}.xlsx",
+    )

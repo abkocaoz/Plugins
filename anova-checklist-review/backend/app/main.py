@@ -45,7 +45,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=__version__,
-    description="Document review + Excel checklist engine (Phase 4: Software Code Standard)",
+    description="Document review + Excel checklist engine (Phase 5: human review + Excel export)",
     lifespan=lifespan,
 )
 
@@ -215,30 +215,35 @@ _CHECKLIST_UI_HTML = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
-  <title>ACR — Checklist results</title>
+  <title>ACR — Checklist review</title>
   <style>
     body{font-family:ui-sans-serif,system-ui,sans-serif;max-width:980px;margin:2rem auto;padding:0 1rem;line-height:1.4}
     label{display:block;margin-top:.6rem;font-weight:600}
-    input,button{margin-top:.25rem;padding:.5rem}
-    input{width:100%}
-    button{cursor:pointer;margin-right:.5rem}
+    input,select,textarea,button{margin-top:.25rem;padding:.5rem}
+    input,select,textarea{width:100%;box-sizing:border-box}
+    button{cursor:pointer;margin-right:.5rem;margin-top:.5rem}
     .card{border:1px solid #ddd;padding:.75rem 1rem;margin:.75rem 0;border-radius:6px}
     .status{font-weight:700}
     pre{background:#f6f6f6;padding:.5rem;overflow:auto;white-space:pre-wrap}
     .muted{color:#666;font-size:.9rem}
+    .row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-end}
+    .row label{flex:1;min-width:140px}
   </style>
 </head>
 <body>
-  <h1>Software Code Standard — results</h1>
-  <p class="muted">AI proposal is shown separately from human decision. Approve/Excel export = Phase 5 stubs.</p>
+  <h1>Software Code Standard — human review</h1>
+  <p class="muted">AI proposal is stored separately from reviewer_decisions / human_decision. Excel export fills a template copy (synthetic fixture until production templates are supplied).</p>
   <p><a href="/ui">← Upload</a> · <a href="/ui/references">References</a></p>
   <label>API token <input id="token" value="dev-change-me"/></label>
   <label>Project ID <input id="pid"/></label>
   <label>Document version ID <input id="vid"/></label>
-  <label>Checklist run ID (after job) <input id="rid"/></label>
+  <label>Checklist run ID <input id="rid"/></label>
   <button id="seed">Seed catalog</button>
   <button id="start">Start checklist_review job</button>
   <button id="load">Load run view</button>
+  <button id="exportDraft">Export draft</button>
+  <button id="exportApproved">Export reviewer-approved</button>
+  <button id="listExports">List exports</button>
   <h2>Output</h2>
   <pre id="out">{}</pre>
   <div id="items"></div>
@@ -258,6 +263,20 @@ _CHECKLIST_UI_HTML = """<!doctype html>
     const r = await fetch('/api/v1/projects/' + pid + '/checklist-runs', {
       method:'POST', headers: headers(), body: JSON.stringify(body)
     });
+    document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+  };
+  async function startExport(mode) {
+    const rid = document.getElementById('rid').value.trim();
+    const r = await fetch('/api/v1/checklist-runs/' + rid + '/export', {
+      method:'POST', headers: headers(), body: JSON.stringify({mode})
+    });
+    document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
+  }
+  document.getElementById('exportDraft').onclick = () => startExport('draft');
+  document.getElementById('exportApproved').onclick = () => startExport('reviewer_approved');
+  document.getElementById('listExports').onclick = async () => {
+    const rid = document.getElementById('rid').value.trim();
+    const r = await fetch('/api/v1/checklist-runs/' + rid + '/exports', {headers: {'X-API-Token': token()}});
     const data = await r.json();
     document.getElementById('out').textContent = JSON.stringify(data, null, 2);
   };
@@ -267,6 +286,7 @@ _CHECKLIST_UI_HTML = """<!doctype html>
     const data = await r.json();
     document.getElementById('out').textContent = JSON.stringify({
       run: data.run, template_gap: data.template_gap,
+      excel_template_ready: data.excel_template_ready,
       pinned_standard_version_ids: data.pinned_standard_version_ids
     }, null, 2);
     const root = document.getElementById('items');
@@ -274,14 +294,49 @@ _CHECKLIST_UI_HTML = """<!doctype html>
     (data.items || []).forEach(it => {
       const d = document.createElement('div');
       d.className = 'card';
-      d.innerHTML = '<div class="status">' + it.state +
+      d.dataset.answerId = it.answer_id;
+      d.innerHTML =
+        '<div class="status">' + it.state +
         (it.human_decision ? ' · human=' + it.human_decision : ' · human=∅') +
         ' · ' + it.method + '</div>' +
         '<div><strong>' + it.item_key + '</strong> — ' + it.question + '</div>' +
         '<div class="muted">' + (it.rationale || '') + '</div>' +
         '<pre>ai_proposal: ' + JSON.stringify(it.ai_proposal, null, 2) + '</pre>' +
-        '<pre>evidence: ' + JSON.stringify(it.evidence, null, 2) + '</pre>' +
-        '<div class="muted">' + JSON.stringify(it.phase5_hooks) + '</div>';
+        '<details><summary>Evidence (' + (it.evidence||[]).length + ')</summary><pre>' +
+          JSON.stringify(it.evidence, null, 2) + '</pre></details>' +
+        '<details><summary>Related reference findings (' +
+          (it.related_reference_findings||[]).length + ')</summary><pre>' +
+          JSON.stringify(it.related_reference_findings, null, 2) + '</pre></details>' +
+        '<div class="row">' +
+          '<label>Decision<select class="dec">' +
+            '<option value="accept">accept AI</option>' +
+            '<option value="override">override</option>' +
+            '<option value="reject">reject</option>' +
+            '<option value="defer">defer</option>' +
+          '</select></label>' +
+          '<label>Override state<select class="ost">' +
+            '<option value="">(none)</option>' +
+            '<option>YES</option><option>NO</option><option>NA</option>' +
+            '<option>INSUFFICIENT_EVIDENCE</option><option>MANUAL_REVIEW</option><option>ERROR</option>' +
+          '</select></label>' +
+          '<label>Status cell<input class="stv" placeholder="optional; not auto-Closed"/></label>' +
+        '</div>' +
+        '<label>Change rationale<textarea class="rat" rows="2"></textarea></label>' +
+        '<button class="save">Save human decision</button>' +
+        '<pre class="decOut muted"></pre>';
+      d.querySelector('.save').onclick = async () => {
+        const body = {
+          decision: d.querySelector('.dec').value,
+          override_state: d.querySelector('.ost').value || null,
+          change_rationale: d.querySelector('.rat').value || null,
+          status_value: d.querySelector('.stv').value || null,
+          reviewed_item: 'Yes'
+        };
+        const resp = await fetch('/api/v1/checklist-answers/' + it.answer_id + '/decision', {
+          method:'POST', headers: headers(), body: JSON.stringify(body)
+        });
+        d.querySelector('.decOut').textContent = JSON.stringify(await resp.json(), null, 2);
+      };
       root.appendChild(d);
     });
   };

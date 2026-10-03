@@ -52,6 +52,8 @@ async def process_job(session: AsyncSession, settings: Settings, job: Job) -> di
         return await run_reference_validation(session, settings, job)
     if job.job_type == JobType.CHECKLIST_REVIEW:
         return await run_checklist_review_job(session, settings, job)
+    if job.job_type == JobType.EXPORT:
+        return await run_export_job(session, settings, job)
     raise ValueError(f"Unknown job type: {job.job_type}")
 
 
@@ -710,4 +712,12 @@ async def run_checklist_review_job(
         pinned_standard_version_ids=list(pinned) if pinned else None,
         external_evidence_document_version_ids=list(external) if external else None,
     )
+
+
+async def run_export_job(
+    session: AsyncSession, settings: Settings, job: Job
+) -> dict[str, Any]:
+    from app.services.excel_export import run_export_job as _run_export
+
+    return await _run_export(session, settings, job.payload)
 

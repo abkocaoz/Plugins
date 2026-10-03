@@ -4,11 +4,11 @@ Internal document-review + Excel checklist application.
 
 See [`../docs/implementation-plan.md`](../docs/implementation-plan.md) for architecture, phases, and isolation rules.
 
-## Current status: Phase 4
+## Current status: Phase 5
 
-Upload → extract → index → references → **Software Code Standard checklist evaluation**.
+Upload → extract → index → references → checklist evaluation → **human review + Excel export**.
 
-Catalog is a versioned JSON scaffold (no real Excel template file in repo — see `templates/excel/README.md`).
+Catalog is a versioned JSON scaffold. Production Excel templates are **not** in the repo; a minimal synthetic `.xlsx` fixture supports mapping/preservation tests (see `templates/excel/README.md`). Do not assume 21 real templates exist.
 
 ## Quick start (deploy host with Docker)
 
@@ -44,7 +44,7 @@ curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/projects/$PROJECT_ID/jobs"
 # open $BASE/ui and $BASE/ui/references
 ```
 
-### Checklist (Phase 4)
+### Checklist + human review + export (Phases 4–5)
 
 ```bash
 # Seed catalog (safe to repeat)
@@ -59,6 +59,21 @@ curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
 # When job result includes checklist_run_id:
 curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/checklist-runs/$RUN_ID/view"
 # or open $BASE/ui/checklist
+
+# Record human decision (ai_proposal stays; reviewer_decisions row created)
+curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"decision":"override","override_state":"YES","change_rationale":"Confirmed in source","status_value":"In Review","reviewed_item":"Yes"}' \
+  "$BASE/api/v1/checklist-answers/$ANSWER_ID/decision"
+
+# Export filled copy of template (draft | reviewer_approved) — job type export
+curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"mode":"draft"}' \
+  "$BASE/api/v1/checklist-runs/$RUN_ID/export"
+
+# After export job succeeds:
+curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/checklist-runs/$RUN_ID/exports"
+curl -sS -H "X-API-Token: $TOKEN" -o filled.xlsx \
+  "$BASE/api/v1/exports/$EXPORT_ID/download"
 ```
 
 ### Missing source upload (content identity)
@@ -113,4 +128,4 @@ cd ../embedding && PYTHONPATH=. pytest -q test_embed_stub.py
 
 ## Frontend
 
-No full React SPA yet. Phase 2 ships REST APIs + `/ui` upload hook. React/TS planned for Phase 3+ validation UI.
+No full React SPA yet. REST APIs + `/ui`, `/ui/references`, `/ui/checklist` hooks for upload, references, human review, and export.
