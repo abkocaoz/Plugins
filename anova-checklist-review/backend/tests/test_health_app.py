@@ -24,8 +24,10 @@ def test_meta_lists_reference_statuses():
 
 def test_ui_hooks():
     client = TestClient(app)
-    assert client.get("/ui").status_code == 200
-    assert "Phase 4" in client.get("/ui").text
+    ui = client.get("/ui")
+    assert ui.status_code == 200
+    assert "Start Live Demo" in ui.text
+    assert "Live Demo" in ui.text
     assert "Reference review" in client.get("/ui/references").text
     assert "Software Code Standard" in client.get("/ui/checklist").text
 
