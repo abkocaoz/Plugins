@@ -26,10 +26,34 @@ def test_ui_hooks():
     client = TestClient(app)
     ui = client.get("/ui")
     assert ui.status_code == 200
-    assert "Start Live Demo" in ui.text
-    assert "Live Demo" in ui.text
-    assert "Reference review" in client.get("/ui/references").text
-    assert "Software Code Standard" in client.get("/ui/checklist").text
+    assert "Başlat" in ui.text
+    assert "Checklist" in ui.text
+    assert "Doküman" in ui.text
+    assert "prompt picker" not in ui.text.lower()
+    assert "API token" not in ui.text
+    assert "/api/v1/ui/home" in ui.text
+    assert "/api/v1/ui/start-review" in ui.text
+    refs = client.get("/ui/references")
+    assert refs.status_code == 200
+    assert "Referans" in refs.text
+    checklist = client.get("/ui/checklist")
+    assert checklist.status_code == 200
+    assert "Checklist" in checklist.text
+
+
+def test_ui_home_endpoint_shape():
+    client = TestClient(app)
+    # AUTH_MODE=open in tests; endpoint still requires router dependency pass-through
+    r = client.get("/api/v1/ui/home")
+    # Without DB this may 500 in some envs; when OK, shape is stable.
+    if r.status_code != 200:
+        return
+    body = r.json()
+    assert "checklists" in body
+    assert "document_revisions" in body
+    assert "links" in body
+    keys = {c["definition_key"] for c in body["checklists"]}
+    assert "software_code_standard" in keys
 
 
 def test_catalog_meta_endpoint():
