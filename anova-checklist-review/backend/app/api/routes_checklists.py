@@ -30,7 +30,12 @@ from app.models.entities import (
     ReviewerDecision,
 )
 from app.schemas.common import JobOut, ORMModel
-from app.services.checklist_catalog import load_catalog_file, seed_catalog
+from app.services.checklist_catalog import (
+    CATALOG_PATHS,
+    list_catalog_keys,
+    load_catalog_file,
+    seed_catalog_by_key,
+)
 from app.services.excel_export import resolve_template_path
 from app.services.human_review import (
     list_decisions_for_answer,
@@ -74,6 +79,10 @@ class StartChecklistBody(BaseModel):
     document_version_id: uuid.UUID
     definition_key: str = "software_code_standard"
     pinned_standard_version_ids: list[str] = Field(default_factory=list)
+    pinned_document_version_ids: list[str] = Field(
+        default_factory=list,
+        description="Peer document versions for cross-document (SECI) comparison; primary is document_version_id",
+    )
     external_evidence_document_version_ids: list[str] = Field(default_factory=list)
 
 
@@ -157,7 +166,39 @@ class ReviewerDecisionOut(ORMModel):
 
 @router.post("/checklists/seed/software-code-standard", response_model=ChecklistDefinitionOut)
 async def seed_software_code_standard(db: AsyncSession = Depends(get_db)) -> ChecklistDefinition:
-    definition = await seed_catalog(db)
+    definition = await seed_catalog_by_key(db, "software_code_standard")
+    await db.commit()
+    await db.refresh(definition)
+    return definition
+
+
+@router.post("/checklists/seed/data-icd", response_model=ChecklistDefinitionOut)
+async def seed_data_icd(db: AsyncSession = Depends(get_db)) -> ChecklistDefinition:
+    definition = await seed_catalog_by_key(db, "data_icd")
+    await db.commit()
+    await db.refresh(definition)
+    return definition
+
+
+@router.post("/checklists/seed/seci", response_model=ChecklistDefinitionOut)
+async def seed_seci(db: AsyncSession = Depends(get_db)) -> ChecklistDefinition:
+    definition = await seed_catalog_by_key(db, "seci")
+    await db.commit()
+    await db.refresh(definition)
+    return definition
+
+
+@router.post("/checklists/seed/{key}", response_model=ChecklistDefinitionOut)
+async def seed_checklist_by_key(
+    key: str, db: AsyncSession = Depends(get_db)
+) -> ChecklistDefinition:
+    normalized = key.replace("-", "_")
+    if normalized not in CATALOG_PATHS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown catalog key; known={list_catalog_keys()}",
+        )
+    definition = await seed_catalog_by_key(db, normalized)
     await db.commit()
     await db.refresh(definition)
     return definition
@@ -191,9 +232,9 @@ async def list_items(key: str, db: AsyncSession = Depends(get_db)) -> list[Check
 
 
 @router.get("/checklists/catalog/software-code-standard/meta")
-async def catalog_meta() -> dict[str, Any]:
+async def catalog_meta_scs() -> dict[str, Any]:
     """Expose scaffold gap info without claiming template files exist."""
-    data = load_catalog_file()
+    data = load_catalog_file(key="software_code_standard")
     return {
         "key": data["key"],
         "version_label": data["version_label"],
@@ -201,6 +242,26 @@ async def catalog_meta() -> dict[str, Any]:
         "template_gap": data.get("template_gap"),
         "cell_mapping": data.get("cell_mapping"),
         "excel_template_path": data.get("excel_template_path"),
+    }
+
+
+@router.get("/checklists/catalog/{key}/meta")
+async def catalog_meta(key: str) -> dict[str, Any]:
+    normalized = key.replace("-", "_")
+    if normalized not in CATALOG_PATHS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"unknown catalog key; known={list_catalog_keys()}",
+        )
+    data = load_catalog_file(key=normalized)
+    return {
+        "key": data["key"],
+        "version_label": data["version_label"],
+        "item_count": len(data["items"]),
+        "template_gap": data.get("template_gap"),
+        "cell_mapping": data.get("cell_mapping"),
+        "excel_template_path": data.get("excel_template_path"),
+        "known_catalogs": list_catalog_keys(),
     }
 
 
@@ -224,12 +285,12 @@ async def start_checklist_run(
     if not document or document.project_id != project_id:
         raise HTTPException(status_code=400, detail="document version not in project")
 
-    # Ensure catalog seeded
+    # Ensure catalog seeded for known scaffolds
     definition = await db.scalar(
         select(ChecklistDefinition).where(ChecklistDefinition.key == body.definition_key)
     )
-    if definition is None and body.definition_key == "software_code_standard":
-        await seed_catalog(db)
+    if definition is None and body.definition_key in CATALOG_PATHS:
+        await seed_catalog_by_key(db, body.definition_key)
 
     job = await enqueue_job(
         db,
@@ -239,6 +300,7 @@ async def start_checklist_run(
             "document_version_id": str(body.document_version_id),
             "definition_key": body.definition_key,
             "pinned_standard_version_ids": body.pinned_standard_version_ids,
+            "pinned_document_version_ids": body.pinned_document_version_ids,
             "external_evidence_document_version_ids": body.external_evidence_document_version_ids,
         },
         project_id=project_id,
@@ -248,6 +310,7 @@ async def start_checklist_run(
             body.document_version_id,
             body.definition_key,
             version.content_sha256,
+            ",".join(sorted(body.pinned_document_version_ids)),
         ),
     )
     if job.status == "succeeded":

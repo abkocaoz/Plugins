@@ -4,11 +4,11 @@ Internal document-review + Excel checklist application.
 
 See [`../docs/implementation-plan.md`](../docs/implementation-plan.md) for architecture, phases, and isolation rules.
 
-## Current status: Phase 5
+## Current status: Phase 6
 
-Upload → extract → index → references → checklist evaluation → **human review + Excel export**.
+Upload → extract → index → references → checklist evaluation (Software Code Standard, **DataICD**, **SECI**) → human review + Excel export.
 
-Catalog is a versioned JSON scaffold. Production Excel templates are **not** in the repo; a minimal synthetic `.xlsx` fixture supports mapping/preservation tests (see `templates/excel/README.md`). Do not assume 21 real templates exist.
+Catalogs are versioned JSON scaffolds. Production Excel templates are **not** in the repo; synthetic `.xlsx` fixtures support mapping/preservation tests (see `templates/excel/README.md`). Do not assume 21 real templates exist. Phase 7 (remaining checklists) is not started.
 
 ## Quick start (deploy host with Docker)
 
@@ -44,16 +44,30 @@ curl -sS -H "X-API-Token: $TOKEN" "$BASE/api/v1/projects/$PROJECT_ID/jobs"
 # open $BASE/ui and $BASE/ui/references
 ```
 
-### Checklist + human review + export (Phases 4–5)
+### Checklist + human review + export (Phases 4–6)
 
 ```bash
-# Seed catalog (safe to repeat)
+# Seed catalogs (safe to repeat)
 curl -sS -X POST -H "X-API-Token: $TOKEN" \
   "$BASE/api/v1/checklists/seed/software-code-standard"
+curl -sS -X POST -H "X-API-Token: $TOKEN" \
+  "$BASE/api/v1/checklists/seed/data-icd"
+curl -sS -X POST -H "X-API-Token: $TOKEN" \
+  "$BASE/api/v1/checklists/seed/seci"
 
 # Start evaluation job (after document extracted/indexed)
 curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"document_version_id\":\"$VERSION_ID\",\"definition_key\":\"software_code_standard\"}" \
+  "$BASE/api/v1/projects/$PROJECT_ID/checklist-runs"
+
+# DataICD (deterministic; Is Applicable ≠ Answer/conformity)
+curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"document_version_id\":\"$ICD_VERSION_ID\",\"definition_key\":\"data_icd\"}" \
+  "$BASE/api/v1/projects/$PROJECT_ID/checklist-runs"
+
+# SECI cross-document (pin peer ICD/design versions on the run)
+curl -sS -X POST -H "X-API-Token: $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"document_version_id\":\"$SECI_VERSION_ID\",\"definition_key\":\"seci\",\"pinned_document_version_ids\":[\"$ICD_VERSION_ID\"]}" \
   "$BASE/api/v1/projects/$PROJECT_ID/checklist-runs"
 
 # When job result includes checklist_run_id:

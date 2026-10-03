@@ -702,6 +702,7 @@ async def run_checklist_review_job(
     document_version_id = uuid.UUID(job.payload["document_version_id"])
     definition_key = job.payload.get("definition_key") or "software_code_standard"
     pinned = job.payload.get("pinned_standard_version_ids")
+    pinned_docs = job.payload.get("pinned_document_version_ids")
     external = job.payload.get("external_evidence_document_version_ids")
     return await run_checklist_review(
         session,
@@ -710,6 +711,7 @@ async def run_checklist_review_job(
         document_version_id=document_version_id,
         definition_key=definition_key,
         pinned_standard_version_ids=list(pinned) if pinned else None,
+        pinned_document_version_ids=list(pinned_docs) if pinned_docs else None,
         external_evidence_document_version_ids=list(external) if external else None,
     )
 

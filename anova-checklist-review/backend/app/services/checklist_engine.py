@@ -1,4 +1,4 @@
-"""Software Code Standard checklist evaluation engine (Phase 4)."""
+"""Checklist evaluation engine (Phases 4–6: SCS, DataICD, SECI)."""
 
 from __future__ import annotations
 
@@ -37,6 +37,7 @@ from app.services.evidence import (
     EvidencePack,
     build_evidence_pack_from_units,
     filter_evidence,
+    merge_evidence_packs,
 )
 from app.services.ollama_checklist import ollama_checklist_evaluate
 
@@ -105,10 +106,16 @@ def verify_evidence_citations(
         if item.project_id != pack.project_id:
             invalid.append(eid)
             continue
-        if item.document_version_id != pack.document_version_id:
+        allowed = pack.allowed_document_version_ids()
+        if item.document_version_id not in allowed:
             invalid.append(eid)
             continue
-        if item.revision and item.revision != pack.version_label:
+        # Revision check only for primary-pack items when single-doc; multi-doc allows peer revisions
+        if (
+            len(allowed) <= 1
+            and item.revision
+            and item.revision != pack.version_label
+        ):
             invalid.append(eid)
             continue
         if require_quote and not (item.quote or "").strip():
@@ -229,6 +236,7 @@ async def evaluate_item(
     run: ChecklistRun,
     item: ChecklistItem,
     pack: EvidencePack,
+    applicability_yes: bool | None = None,
 ) -> ChecklistAnswer:
     schema = item.schema_json or {}
     method = item.method
@@ -240,7 +248,7 @@ async def evaluate_item(
 
     ai_proposal: dict[str, Any] = {
         "method": method,
-        "engine": "phase4",
+        "engine": "phase6",
     }
     state = ChecklistAnswerState.PENDING
     rationale = ""
@@ -249,6 +257,14 @@ async def evaluate_item(
     confidence = None
     evidence_ids: list[str] = []
     subcheck_results: list[dict[str, Any]] = []
+    # Applicability display value for Is Applicable column (never store conformity here)
+    is_applicable_value: str | None = None
+
+    primary_doc_type = (pack.doc_types_by_version or {}).get(str(pack.document_version_id))
+    pinned_doc_types = [
+        (pack.doc_types_by_version or {}).get(str(vid), "")
+        for vid in (pack.pinned_document_version_ids or [])
+    ]
 
     # Dependent items blocked by missing/critical references
     if item.depends_on_references or deps:
@@ -288,37 +304,87 @@ async def evaluate_item(
                 method_config,
                 pack,
                 full_scan=full_scan,
+                applicability_yes=applicability_yes,
+                primary_doc_type=primary_doc_type,
+                pinned_doc_types=pinned_doc_types,
             )
-            state, extra = enforce_answer_semantics(
-                result.state,
-                subchecks=result.subcheck_results or [{"id": s["id"], "passed": True} for s in subchecks_def],
-                inapplicability_rationale=None,
-                valid_evidence_ids=result.evidence_ids,
-                invalid_evidence_ids=[],
-                confidence=None,
-            )
-            rationale = result.rationale + (f" | {extra}" if extra else "")
-            evidence_ids = result.evidence_ids
-            subcheck_results = result.subcheck_results
-            chapter = result.chapter_text
-            comment = result.comment_text
-            ai_proposal.update(
-                {
-                    "answer": state,
-                    "subchecks": subcheck_results,
-                    "evidence_ids": evidence_ids,
-                    "full_scan": full_scan,
-                }
-            )
+            rule_name = method_config.get("rule") or ""
+            if rule_name == "dataicd_applicability":
+                # Map applicability YES/NO → Is Applicable only; conformity Answer = NA if not applicable
+                is_applicable_value = (
+                    "Yes"
+                    if result.state == ChecklistAnswerState.YES
+                    else "No"
+                    if result.state == ChecklistAnswerState.NO
+                    else "NA"
+                )
+                if result.state == ChecklistAnswerState.YES:
+                    state = ChecklistAnswerState.YES
+                    rationale = result.rationale
+                else:
+                    state = ChecklistAnswerState.NA
+                    rationale = result.rationale + " | conformity Answer=NA (not written into Is Applicable)"
+                evidence_ids = result.evidence_ids
+                subcheck_results = result.subcheck_results
+                chapter = result.chapter_text
+                comment = result.comment_text
+                ai_proposal.update(
+                    {
+                        "answer": state,
+                        "is_applicable": is_applicable_value,
+                        "applicability_state": result.state,
+                        "subchecks": subcheck_results,
+                        "evidence_ids": evidence_ids,
+                        "full_scan": full_scan,
+                        "note": "applicability vs conformity kept separate",
+                    }
+                )
+            else:
+                # Propagate run-level applicability onto items that declare is_applicable cells
+                if cells.get("is_applicable") and applicability_yes is not None:
+                    is_applicable_value = "Yes" if applicability_yes else "No"
+                state, extra = enforce_answer_semantics(
+                    result.state,
+                    subchecks=result.subcheck_results
+                    or [{"id": s["id"], "passed": True} for s in subchecks_def],
+                    inapplicability_rationale=(
+                        "Data ICD not applicable" if result.state == ChecklistAnswerState.NA else None
+                    ),
+                    valid_evidence_ids=result.evidence_ids,
+                    invalid_evidence_ids=[],
+                    confidence=None,
+                )
+                rationale = result.rationale + (f" | {extra}" if extra else "")
+                evidence_ids = result.evidence_ids
+                subcheck_results = result.subcheck_results
+                chapter = result.chapter_text
+                comment = result.comment_text
+                ai_proposal.update(
+                    {
+                        "answer": state,
+                        "is_applicable": is_applicable_value,
+                        "subchecks": subcheck_results,
+                        "evidence_ids": evidence_ids,
+                        "full_scan": full_scan,
+                    }
+                )
 
         elif method == ChecklistMethod.TRACEABILITY:
-            result = run_traceability_full_scan(
-                list(method_config.get("required_keywords") or []), pack
-            )
+            rule_name = method_config.get("rule") or ""
+            if rule_name.startswith("seci_"):
+                from app.services.seci_rules import run_seci_traceability
+
+                result = run_seci_traceability(rule_name, method_config, pack)
+            else:
+                result = run_traceability_full_scan(
+                    list(method_config.get("required_keywords") or []), pack
+                )
             state = result.state
             rationale = result.rationale
             evidence_ids = result.evidence_ids
             subcheck_results = result.subcheck_results
+            chapter = result.chapter_text
+            comment = result.comment_text
             ai_proposal.update(
                 {"answer": state, "subchecks": subcheck_results, "evidence_ids": evidence_ids}
             )
@@ -338,16 +404,46 @@ async def evaluate_item(
             ai_proposal.update({"answer": state, "external_ids": external_ids})
 
         elif method == ChecklistMethod.MANUAL_REVIEW:
-            state = ChecklistAnswerState.MANUAL_REVIEW
-            rationale = "Item requires human review (AI proposal only; not approved)"
-            ai_proposal.update({"answer": state})
+            if method_config.get("gate_on_applicability") and applicability_yes is False:
+                state = ChecklistAnswerState.NA
+                rationale = "Not applicable — conformity Answer=NA (Is Applicable=No)"
+                is_applicable_value = "No"
+                comment = "Skipped manual conformity review; applicability is No"
+            else:
+                state = ChecklistAnswerState.MANUAL_REVIEW
+                rationale = "Item requires human review (AI proposal only; not approved)"
+                if cells.get("is_applicable") and applicability_yes is not None:
+                    is_applicable_value = "Yes" if applicability_yes else "No"
+            ai_proposal.update({"answer": state, "is_applicable": is_applicable_value})
 
         elif method == ChecklistMethod.CROSS_DOCUMENT:
-            # If we reached here, reference deps were OK — check verified findings lightly
-            state = ChecklistAnswerState.YES
-            rationale = "Required reference dependencies resolved for cross-document item"
-            evidence_ids = [e.evidence_id for e in pack.items[:3]]
-            ai_proposal.update({"answer": state, "evidence_ids": evidence_ids})
+            rule_name = method_config.get("rule") or ""
+            if rule_name:
+                from app.services.seci_rules import run_seci_cross_document
+
+                result = run_seci_cross_document(rule_name, method_config, pack)
+                state = result.state
+                rationale = result.rationale
+                evidence_ids = result.evidence_ids
+                subcheck_results = result.subcheck_results
+                chapter = result.chapter_text
+                comment = result.comment_text
+                ai_proposal.update(
+                    {
+                        "answer": state,
+                        "subchecks": subcheck_results,
+                        "evidence_ids": evidence_ids,
+                        "pinned_document_version_ids": [
+                            str(v) for v in (pack.pinned_document_version_ids or [])
+                        ],
+                    }
+                )
+            else:
+                # Legacy SCS cross_document: reference deps already cleared above
+                state = ChecklistAnswerState.YES
+                rationale = "Required reference dependencies resolved for cross-document item"
+                evidence_ids = [e.evidence_id for e in pack.items[:3]]
+                ai_proposal.update({"answer": state, "evidence_ids": evidence_ids})
 
         elif method == ChecklistMethod.DOCUMENT_CONTENT:
             terms = list(method_config.get("evidence_query_terms") or [])
@@ -404,6 +500,9 @@ async def evaluate_item(
         state = ChecklistAnswerState.ERROR
         rationale = f"Evaluation error: {exc}"
         ai_proposal.update({"answer": state, "error": str(exc)})
+
+    if is_applicable_value is not None:
+        ai_proposal.setdefault("is_applicable", is_applicable_value)
 
     return await _upsert_answer(
         session,
@@ -504,6 +603,7 @@ async def run_checklist_review(
     document_version_id: uuid.UUID,
     definition_key: str = "software_code_standard",
     pinned_standard_version_ids: list[str] | None = None,
+    pinned_document_version_ids: list[str] | None = None,
     external_evidence_document_version_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     document_version = await session.get(DocumentVersion, document_version_id)
@@ -515,13 +615,9 @@ async def run_checklist_review(
     if document.project_id != project_id:
         raise RuntimeError("document not in project")
 
-    definition = await session.scalar(
-        select(ChecklistDefinition).where(ChecklistDefinition.key == definition_key)
-    )
-    if definition is None:
-        from app.services.checklist_catalog import seed_catalog
+    from app.services.checklist_catalog import ensure_catalog_seeded
 
-        definition = await seed_catalog(session)
+    definition = await ensure_catalog_seeded(session, definition_key)
 
     items = (
         await session.scalars(
@@ -531,7 +627,7 @@ async def run_checklist_review(
         )
     ).all()
 
-    # Pin versions: explicit arg, else from open reference review, else project standard set
+    # Pin standard versions: explicit arg, else from open reference review, else project set
     pinned = list(pinned_standard_version_ids or [])
     if not pinned:
         reviews = (
@@ -557,6 +653,23 @@ async def run_checklist_review(
             ).all()
         ]
 
+    # Pin peer document versions for cross-document (SECI / multi-doc) reviews
+    peer_ids: list[uuid.UUID] = []
+    for raw in pinned_document_version_ids or []:
+        try:
+            vid = uuid.UUID(str(raw))
+        except ValueError:
+            continue
+        if vid == document_version_id:
+            continue
+        peer = await session.get(DocumentVersion, vid)
+        if peer is None:
+            continue
+        peer_doc = await session.get(Document, peer.document_id)
+        if peer_doc is None or peer_doc.project_id != project_id:
+            continue
+        peer_ids.append(vid)
+
     run = ChecklistRun(
         id=uuid.uuid4(),
         project_id=project_id,
@@ -567,6 +680,8 @@ async def run_checklist_review(
         meta={
             "pinned_standard_version_ids": pinned,
             "pinned_document_version_id": str(document_version_id),
+            "pinned_document_version_ids": [str(document_version_id)]
+            + [str(v) for v in peer_ids],
             "definition_key": definition.key,
             "definition_version": definition.version_label,
             "external_evidence_document_version_ids": list(
@@ -585,17 +700,55 @@ async def run_checklist_review(
         version_label=document_version.version_label,
         content_sha256=document_version.content_sha256,
         units=units,
+        doc_type=document.doc_type,
+        pinned_document_version_ids=peer_ids,
     )
+    peer_packs: list[tuple[EvidencePack, str | None]] = []
+    for vid in peer_ids:
+        peer = await session.get(DocumentVersion, vid)
+        if peer is None:
+            continue
+        peer_doc = await session.get(Document, peer.document_id)
+        peer_units = _load_units_for_version(peer)
+        peer_pack = build_evidence_pack_from_units(
+            project_id=project_id,
+            document_version_id=peer.id,
+            version_label=peer.version_label,
+            content_sha256=peer.content_sha256,
+            units=peer_units,
+            doc_type=peer_doc.doc_type if peer_doc else None,
+        )
+        peer_packs.append((peer_pack, peer_doc.doc_type if peer_doc else None))
+    if peer_packs:
+        pack = merge_evidence_packs(pack, peer_packs)
 
     answers = []
+    applicability_yes: bool | None = None
     for item in items:
-        ans = await evaluate_item(session, settings, run=run, item=item, pack=pack)
+        ans = await evaluate_item(
+            session,
+            settings,
+            run=run,
+            item=item,
+            pack=pack,
+            applicability_yes=applicability_yes,
+        )
         answers.append(ans)
+        # Track DataICD applicability from the dedicated applicability item
+        if item.item_key == "DICD-Q01" or (
+            (item.schema_json or {}).get("method_config") or {}
+        ).get("rule") == "dataicd_applicability":
+            app_val = (ans.ai_proposal or {}).get("is_applicable")
+            if app_val == "Yes":
+                applicability_yes = True
+            elif app_val == "No":
+                applicability_yes = False
 
     run.status = "succeeded"
     run.finished_at = datetime.now(timezone.utc)
     meta = dict(run.meta or {})
     meta["answer_counts"] = _count_states(answers)
+    meta["applicability_yes"] = applicability_yes
     run.meta = meta
     flag_modified(run, "meta")
 
@@ -605,6 +758,8 @@ async def run_checklist_review(
         "item_count": len(items),
         "answer_counts": meta["answer_counts"],
         "pinned_standard_version_ids": pinned,
+        "pinned_document_version_ids": meta["pinned_document_version_ids"],
+        "applicability_yes": applicability_yes,
     }
 
 

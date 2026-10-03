@@ -3,7 +3,7 @@
 **Project:** Reviewer / `anova-checklist-review`  
 **Stack (v1):** FastAPI + PostgreSQL + Qdrant + BGE-M3 (separate embedding service) + Ollama + React/TypeScript  
 **Compose project name:** `anova-checklist-review`  
-**Status:** Phase 5 (human review + Excel export) implemented on branch; Phase 6+ not started
+**Status:** Phase 6 (DataICD deterministic + SECI cross-doc) implemented on branch; Phase 7 not started
 
 ---
 
@@ -280,10 +280,25 @@ Landed in `anova-checklist-review/`:
 - [x] Unit tests + plan/README update
 - [ ] Live Compose e2e download through gateway — needs Docker host
 
-### Phase 6 — DataICD deterministic + SECI cross-doc *(plan only)*
+### Phase 6 — DataICD deterministic + SECI cross-doc (**implemented**)
 
-- Deterministic ICD checks where possible
-- Cross-document SECI consistency
+| Area | What |
+|---|---|
+| DataICD catalog | `backend/app/catalogs/data_icd_v1.json` + synthetic fixture; deterministic rules (`dataicd_*`) |
+| Applicability vs conformity | Separate **Is Applicable** column (C) from **Answer** (D); never write conformity into Is Applicable; gated items → Answer=NA when not applicable |
+| SECI catalog | `backend/app/catalogs/seci_v1.json` + synthetic fixture; `cross_document` / `traceability` across pinned docs |
+| Pinning | `pinned_document_version_ids` on checklist run + job payload; multi-doc `EvidencePack` merge |
+| Wiring | Same `checklist_review` job, human review, and Excel export paths (definition_key = `data_icd` / `seci`) |
+| Seed APIs | `POST /checklists/seed/data-icd`, `/checklists/seed/seci`, `/checklists/seed/{key}` |
+| Tests | DataICD deterministic cases + SECI cross-doc scenario |
+
+**Acceptance (Phase 6):**
+
+- [x] DataICD deterministic checks + applicability/conformity separation
+- [x] SECI cross-document comparison with pinned document versions
+- [x] Wired into engine / jobs / human review / export
+- [x] Unit tests + plan/README update
+- [x] Phase 7 (remaining checklists) **not** expanded
 
 ### Phase 7 — Expand other checklists *(plan only)*
 

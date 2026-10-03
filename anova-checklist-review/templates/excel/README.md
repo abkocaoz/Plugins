@@ -42,9 +42,12 @@ human-supplied status is written on export.
 **Yes/No/NA answers:** for `INSUFFICIENT_EVIDENCE`, `MANUAL_REVIEW`, and `ERROR`,
 leave the Answer cell blank and put the explanation in Comment.
 
-**DataICD (future):** keep applicability (“Is Applicable”) separate from conformity;
-never write conformity into the applicability column. Software Code Standard is the
-focus now.
+**DataICD (Phase 6):** synthetic fixture
+`backend/app/catalogs/fixtures/data_icd_synthetic_v1.xlsx` — column **Is Applicable**
+is separate from **Answer** (conformity); never write conformity into Is Applicable.
+
+**SECI (Phase 6):** synthetic fixture
+`backend/app/catalogs/fixtures/seci_synthetic_v1.xlsx` for cross-document mapping tests.
 
 When a real template is supplied:
 

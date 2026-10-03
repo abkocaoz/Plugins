@@ -330,8 +330,16 @@ async def build_export_item_writes(
         comment = _comment_for_export(ans, state, ref_summary)
         chapter = ans.chapter_text
         references_cell = ref_summary
+        # Applicability column is NEVER filled from conformity Answer
+        is_applicable_val = (ans.ai_proposal or {}).get("is_applicable")
+        if isinstance(is_applicable_val, str):
+            is_applicable_val = is_applicable_val.strip() or None
+        else:
+            is_applicable_val = None
 
         cell_values: dict[str, str | None] = {}
+        if cells_map.get("is_applicable"):
+            cell_values[cells_map["is_applicable"]] = is_applicable_val
         if cells_map.get("answer"):
             cell_values[cells_map["answer"]] = answer_val
         if cells_map.get("chapter"):

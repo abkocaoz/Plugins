@@ -45,7 +45,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=__version__,
-    description="Document review + Excel checklist engine (Phase 5: human review + Excel export)",
+    description="Document review + Excel checklist engine (Phase 6: DataICD + SECI cross-doc)",
     lifespan=lifespan,
 )
 
@@ -237,8 +237,16 @@ _CHECKLIST_UI_HTML = """<!doctype html>
   <label>API token <input id="token" value="dev-change-me"/></label>
   <label>Project ID <input id="pid"/></label>
   <label>Document version ID <input id="vid"/></label>
+  <label>Definition key
+    <select id="dkey">
+      <option value="software_code_standard">software_code_standard</option>
+      <option value="data_icd">data_icd</option>
+      <option value="seci">seci</option>
+    </select>
+  </label>
+  <label>Pinned peer document version IDs (comma-separated, for SECI) <input id="peers"/></label>
   <label>Checklist run ID <input id="rid"/></label>
-  <button id="seed">Seed catalog</button>
+  <button id="seed">Seed selected catalog</button>
   <button id="start">Start checklist_review job</button>
   <button id="load">Load run view</button>
   <button id="exportDraft">Export draft</button>
@@ -251,14 +259,17 @@ _CHECKLIST_UI_HTML = """<!doctype html>
   const token = () => document.getElementById('token').value.trim();
   const headers = () => ({'X-API-Token': token(), 'Content-Type': 'application/json'});
   document.getElementById('seed').onclick = async () => {
-    const r = await fetch('/api/v1/checklists/seed/software-code-standard', {method:'POST', headers: headers()});
+    const key = document.getElementById('dkey').value.replaceAll('_','-');
+    const r = await fetch('/api/v1/checklists/seed/' + key, {method:'POST', headers: headers()});
     document.getElementById('out').textContent = JSON.stringify(await r.json(), null, 2);
   };
   document.getElementById('start').onclick = async () => {
     const pid = document.getElementById('pid').value.trim();
+    const peers = document.getElementById('peers').value.split(',').map(s => s.trim()).filter(Boolean);
     const body = {
       document_version_id: document.getElementById('vid').value.trim(),
-      definition_key: 'software_code_standard'
+      definition_key: document.getElementById('dkey').value,
+      pinned_document_version_ids: peers
     };
     const r = await fetch('/api/v1/projects/' + pid + '/checklist-runs', {
       method:'POST', headers: headers(), body: JSON.stringify(body)

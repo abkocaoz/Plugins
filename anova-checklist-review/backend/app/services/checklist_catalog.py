@@ -14,14 +14,28 @@ from app.models.entities import ChecklistDefinition, ChecklistItem
 
 CATALOG_DIR = Path(__file__).resolve().parents[1] / "catalogs"
 SOFTWARE_CODE_STANDARD_PATH = CATALOG_DIR / "software_code_standard_v1.json"
+DATA_ICD_PATH = CATALOG_DIR / "data_icd_v1.json"
+SECI_PATH = CATALOG_DIR / "seci_v1.json"
+
+CATALOG_PATHS: dict[str, Path] = {
+    "software_code_standard": SOFTWARE_CODE_STANDARD_PATH,
+    "data_icd": DATA_ICD_PATH,
+    "seci": SECI_PATH,
+}
 
 
-def load_catalog_file(path: Path | None = None) -> dict[str, Any]:
+def load_catalog_file(path: Path | None = None, *, key: str | None = None) -> dict[str, Any]:
+    if path is None and key:
+        path = CATALOG_PATHS.get(key)
     p = path or SOFTWARE_CODE_STANDARD_PATH
     data = json.loads(p.read_text(encoding="utf-8"))
     if not data.get("key") or not data.get("items"):
         raise ValueError(f"Invalid catalog file: {p}")
     return data
+
+
+def list_catalog_keys() -> list[str]:
+    return sorted(CATALOG_PATHS.keys())
 
 
 async def seed_catalog(
@@ -118,3 +132,26 @@ async def seed_catalog(
             item.schema_json = schema
     await session.flush()
     return definition
+
+
+async def seed_catalog_by_key(
+    session: AsyncSession, key: str, *, replace_items: bool = True
+) -> ChecklistDefinition:
+    if key not in CATALOG_PATHS:
+        raise KeyError(f"Unknown catalog key: {key}. Known: {list_catalog_keys()}")
+    return await seed_catalog(
+        session, load_catalog_file(key=key), replace_items=replace_items
+    )
+
+
+async def ensure_catalog_seeded(
+    session: AsyncSession, key: str
+) -> ChecklistDefinition:
+    existing = await session.scalar(
+        select(ChecklistDefinition).where(ChecklistDefinition.key == key)
+    )
+    if existing is not None:
+        return existing
+    if key not in CATALOG_PATHS:
+        raise RuntimeError(f"checklist definition {key!r} not found and no scaffold available")
+    return await seed_catalog_by_key(session, key)

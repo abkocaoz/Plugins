@@ -26,7 +26,22 @@ def run_deterministic_rule(
     pack: EvidencePack,
     *,
     full_scan: bool,
+    applicability_yes: bool | None = None,
+    primary_doc_type: str | None = None,
+    pinned_doc_types: list[str] | None = None,
 ) -> RuleResult:
+    # DataICD rules may run even when pack is empty (applicability → No)
+    if rule_name.startswith("dataicd_"):
+        from app.services.dataicd_rules import run_dataicd_rule
+
+        return run_dataicd_rule(
+            rule_name,
+            config,
+            pack,
+            applicability_yes=applicability_yes,
+            primary_doc_type=primary_doc_type,
+            pinned_doc_types=pinned_doc_types,
+        )
     if not pack.items:
         return RuleResult(
             state=ChecklistAnswerState.INSUFFICIENT_EVIDENCE,
