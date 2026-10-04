@@ -1,0 +1,231 @@
+{
+  "key": "data_icd",
+  "title": "DataICD",
+  "version_label": "1.0.0-scaffold",
+  "description": "Data Interface Control Document checklist. Deterministic Python checks where rules are clear. Applicability (Is Applicable) is separate from conformity (Answer).",
+  "excel_template_path": "fixtures/data_icd_synthetic_v1.xlsx",
+  "template_gap": {
+    "status": "synthetic_fixture_only",
+    "note": "No production DataICD .xlsx was found in the repo. A minimal synthetic fixture supports mapping/preservation tests only. Do not claim additional real template workbooks exist. When a real template is supplied, set excel_template_path and regenerate cell maps.",
+    "claimed_template_file_count": 0,
+    "synthetic_fixture": "backend/app/catalogs/fixtures/data_icd_synthetic_v1.xlsx",
+    "applicability_vs_conformity": "Column Is Applicable records applicability only. Answer records conformity only. Never write conformity into Is Applicable."
+  },
+  "cell_mapping": {
+    "workbook_name": "data_icd_synthetic_v1.xlsx",
+    "sheet": "Checklist",
+    "header_row": 2,
+    "columns": {
+      "question_number": "A",
+      "question": "B",
+      "is_applicable": "C",
+      "answer": "D",
+      "chapter": "E",
+      "comment": "F",
+      "references": "G",
+      "reviewed_item": "H",
+      "status": "I"
+    },
+    "first_item_row": 3,
+    "answer_values": {"YES": "Yes", "NO": "No", "NA": "NA"},
+    "applicability_values": {"YES": "Yes", "NO": "No", "NA": "NA"},
+    "blank_answer_states": ["INSUFFICIENT_EVIDENCE", "MANUAL_REVIEW", "ERROR"],
+    "do_not_invent_columns": ["Author's Answer", "Resolved SVN Revision"],
+    "status_policy": "Never set Status=Closed solely because AI answered; only human-supplied status is written.",
+    "applicability_policy": "Never write conformity Answer into Is Applicable."
+  },
+  "items": [
+    {
+      "item_key": "DICD-Q01",
+      "question_number": "1",
+      "file": "data_icd_synthetic_v1.xlsx",
+      "sheet": "Checklist",
+      "row": 3,
+      "prompt": "Is a Data ICD document applicable to this project baseline?",
+      "excel_cells": {
+        "is_applicable": "C3",
+        "answer": "D3",
+        "chapter": "E3",
+        "comment": "F3",
+        "references": "G3",
+        "reviewed_item": "H3",
+        "status": "I3"
+      },
+      "applicability": "Always evaluated; this item records applicability itself.",
+      "required_docs": ["icd", "data_icd"],
+      "related_standard_clauses": [],
+      "reference_dependencies": [],
+      "depends_on_references": false,
+      "subchecks": [
+        { "id": "has-icd-doc", "text": "Pinned or primary document has ICD-like content or doc_type icd/data_icd" }
+      ],
+      "acceptance_criteria": "Is Applicable reflects whether ICD review applies; Answer is NA when not applicable (conformity not written into Is Applicable).",
+      "method": "deterministic_rule",
+      "requires_full_scan": true,
+      "method_config": {
+        "rule": "dataicd_applicability",
+        "applicable_doc_types": ["icd", "data_icd"],
+        "icd_marker_patterns": ["(?i)\\bICD\\b", "(?i)interface control", "(?i)signal\\s*id", "(?i)parameter\\s*id"]
+      }
+    },
+    {
+      "item_key": "DICD-Q02",
+      "question_number": "2",
+      "file": "data_icd_synthetic_v1.xlsx",
+      "sheet": "Checklist",
+      "row": 4,
+      "prompt": "Does every ICD record include a signal/parameter identifier?",
+      "excel_cells": {
+        "is_applicable": "C4",
+        "answer": "D4",
+        "chapter": "E4",
+        "comment": "F4",
+        "references": "G4",
+        "reviewed_item": "H4",
+        "status": "I4"
+      },
+      "applicability": "Applies when Data ICD is applicable.",
+      "required_docs": ["icd", "data_icd"],
+      "related_standard_clauses": [],
+      "reference_dependencies": [],
+      "depends_on_references": false,
+      "subchecks": [
+        { "id": "all-records-have-id", "text": "Every parsed ICD record has an identifier" }
+      ],
+      "acceptance_criteria": "YES only if full scan finds identifiers on all records; zero records → INSUFFICIENT_EVIDENCE (not NO).",
+      "method": "deterministic_rule",
+      "requires_full_scan": true,
+      "method_config": {
+        "rule": "dataicd_all_records_have_id",
+        "gate_on_applicability": true
+      }
+    },
+    {
+      "item_key": "DICD-Q03",
+      "question_number": "3",
+      "file": "data_icd_synthetic_v1.xlsx",
+      "sheet": "Checklist",
+      "row": 5,
+      "prompt": "Are signal/parameter identifiers unique across all ICD records?",
+      "excel_cells": {
+        "is_applicable": "C5",
+        "answer": "D5",
+        "chapter": "E5",
+        "comment": "F5",
+        "references": "G5",
+        "reviewed_item": "H5",
+        "status": "I5"
+      },
+      "applicability": "Applies when Data ICD is applicable.",
+      "required_docs": ["icd", "data_icd"],
+      "related_standard_clauses": [],
+      "reference_dependencies": [],
+      "depends_on_references": false,
+      "subchecks": [
+        { "id": "unique-ids", "text": "No duplicate signal/parameter IDs across all records" }
+      ],
+      "acceptance_criteria": "YES if unique; NO if duplicates; zero records → INSUFFICIENT_EVIDENCE.",
+      "method": "deterministic_rule",
+      "requires_full_scan": true,
+      "method_config": {
+        "rule": "dataicd_unique_ids",
+        "gate_on_applicability": true
+      }
+    },
+    {
+      "item_key": "DICD-Q04",
+      "question_number": "4",
+      "file": "data_icd_synthetic_v1.xlsx",
+      "sheet": "Checklist",
+      "row": 6,
+      "prompt": "Does every ICD record specify a data type?",
+      "excel_cells": {
+        "is_applicable": "C6",
+        "answer": "D6",
+        "chapter": "E6",
+        "comment": "F6",
+        "references": "G6",
+        "reviewed_item": "H6",
+        "status": "I6"
+      },
+      "applicability": "Applies when Data ICD is applicable.",
+      "required_docs": ["icd", "data_icd"],
+      "related_standard_clauses": [],
+      "reference_dependencies": [],
+      "depends_on_references": false,
+      "subchecks": [
+        { "id": "all-have-dtype", "text": "Every record has a non-empty data type field" }
+      ],
+      "acceptance_criteria": "Full scan of all records; missing type → NO; no records → INSUFFICIENT_EVIDENCE.",
+      "method": "deterministic_rule",
+      "requires_full_scan": true,
+      "method_config": {
+        "rule": "dataicd_all_records_have_datatype",
+        "gate_on_applicability": true
+      }
+    },
+    {
+      "item_key": "DICD-Q05",
+      "question_number": "5",
+      "file": "data_icd_synthetic_v1.xlsx",
+      "sheet": "Checklist",
+      "row": 7,
+      "prompt": "Does every ICD record specify units (or N/A for dimensionless)?",
+      "excel_cells": {
+        "is_applicable": "C7",
+        "answer": "D7",
+        "chapter": "E7",
+        "comment": "F7",
+        "references": "G7",
+        "reviewed_item": "H7",
+        "status": "I7"
+      },
+      "applicability": "Applies when Data ICD is applicable.",
+      "required_docs": ["icd", "data_icd"],
+      "related_standard_clauses": [],
+      "reference_dependencies": [],
+      "depends_on_references": false,
+      "subchecks": [
+        { "id": "all-have-units", "text": "Every record has units or N/A" }
+      ],
+      "acceptance_criteria": "Full scan; blank units → NO; no records → INSUFFICIENT_EVIDENCE.",
+      "method": "deterministic_rule",
+      "requires_full_scan": true,
+      "method_config": {
+        "rule": "dataicd_all_records_have_units",
+        "gate_on_applicability": true
+      }
+    },
+    {
+      "item_key": "DICD-Q06",
+      "question_number": "6",
+      "file": "data_icd_synthetic_v1.xlsx",
+      "sheet": "Checklist",
+      "row": 8,
+      "prompt": "Are ICD record descriptions present for all records (manual judgment)?",
+      "excel_cells": {
+        "is_applicable": "C8",
+        "answer": "D8",
+        "chapter": "E8",
+        "comment": "F8",
+        "references": "G8",
+        "reviewed_item": "H8",
+        "status": "I8"
+      },
+      "applicability": "Applies when Data ICD is applicable.",
+      "required_docs": ["icd", "data_icd"],
+      "related_standard_clauses": [],
+      "reference_dependencies": [],
+      "depends_on_references": false,
+      "subchecks": [
+        { "id": "descriptions", "text": "Descriptions adequate for interface use" }
+      ],
+      "acceptance_criteria": "Engine proposes MANUAL_REVIEW; human decision in Phase 5 path.",
+      "method": "manual_review",
+      "requires_full_scan": false,
+      "method_config": {
+        "gate_on_applicability": true
+      }
+    }
+  ]
+}

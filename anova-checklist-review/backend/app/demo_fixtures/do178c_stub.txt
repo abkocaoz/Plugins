@@ -1,0 +1,12 @@
+DO-178C
+Software Considerations in Airborne Systems and Equipment Certification
+Version: 2011
+Publisher: RTCA
+
+This is a stub standard source for the no-Docker demo. It is NOT the real DO-178C text.
+
+Clause 4 — Software planning process (demo excerpt).
+Clause 5 — Software development process (demo excerpt).
+
+Canonical identifiers: DO-178C, DO178C.
+Coding standard references may cite DO-178C §4 and §5.
